@@ -39,13 +39,19 @@ No WSL/bash, o equivalente à cópia é `cp .env.example .env`. Para instalaçõ
 | `DATABASE_URL` | Ver `.env.example` | Conexão da API/Prisma executados no host |
 | `TEST_DATABASE_URL` | Ver `.env.example` | Banco exclusivo terminado em `_test` para integração; nunca reutilize o banco da aplicação |
 | `VITE_API_URL` | `http://localhost:3000` | Endereço público da API usado pelos links do frontend |
-| `OPENAI_API_KEY` | vazio | Segredo exclusivo da API; sem chave há fallback humano simulado |
+| `AI_PROVIDER` | `gemini` no exemplo | Seleciona `gemini` ou `openai`; sem variável, mantém OpenAI para instalações existentes |
+| `GEMINI_API_KEY` | vazio | Chave Gemini exclusiva do backend; inserir somente no `.env` da raiz |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Modelo estável com JSON Schema; nível gratuito sujeito a cotas e elegibilidade |
+| `GEMINI_TIMEOUT_MS` | `10000` | Prazo total Gemini, entre 100 e 30000 ms; até duas tentativas apenas em HTTP 502/503/504, sem renovar o prazo |
+| `OPENAI_API_KEY` | vazio | Segredo exclusivo da API, utilizado quando AI_PROVIDER=openai |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | Modelo configurável compatível com Responses e Structured Outputs |
 | `OPENAI_TIMEOUT_MS` | `10000` | Timeout OpenAI, entre 100 e 30000 ms; sem retries automáticos |
 | `FAKE_STORE_TIMEOUT_MS` | `5000` | Timeout por produto, entre 100 e 10000 ms |
 | `CONFIRMATION_TTL_SECONDS` | `300` | Validade da confirmação, entre 30 e 900 segundos |
 
 A API valida o ambiente com Zod antes de iniciar. Mensagens de configuração inválida listam apenas nomes de campos. Variáveis já definidas no processo têm precedência sobre `.env`.
+
+Configuração e guia didático dos provedores: [Etapa 3.1 — Gemini/OpenAI](docs/stage-3.1-gemini.md). O backend local carrega o `.env` da raiz explicitamente, tanto em desenvolvimento quanto no build. O Compose lê esse mesmo arquivo para interpolação e repassa as chaves apenas ao serviço `api`. Não existe fallback automático entre provedores; sem a chave do provedor selecionado, o agente oferece encaminhamento humano simulado.
 
 Ao alterar porta, usuário, senha ou banco, atualize também `DATABASE_URL` e a URL de testes. Ao alterar `API_PORT`, ajuste `VITE_API_URL` e `API_PUBLIC_URL`; ao alterar `WEB_PORT`, ajuste `WEB_ORIGIN`. O Vite incorpora variáveis `VITE_` no bundle: use apenas valores públicos e refaça o build após modificá-los. Se já possui `.env`, acrescente as novas variáveis sem sobrescrever sua configuração.
 
@@ -93,7 +99,7 @@ docker compose logs -f api
 
 Após aplicar as migrations, os próximos inícios podem usar `npm run docker:up`. Migrations são explícitas e não são executadas por esse atalho nem no startup do servidor. O Compose constrói a API compilada e o frontend estático servido por Nginx, sem bind mounts ou dependências do host. Alterações de código exigem novo build. Os endereços publicados são os mesmos do desenvolvimento local. Não execute o Vite/API no host e seus equivalentes no Docker nas mesmas portas simultaneamente.
 
-O banco tem volume nomeado persistente, `postgres_data`. A API aguarda o healthcheck do PostgreSQL e a web aguarda a API saudável. Dentro da rede Docker o banco é `postgres:5432`; a URL local com `localhost` não é reutilizada no container. A chave OpenAI é repassada exclusivamente ao backend, nunca ao build/frontend. Após mudar o `.env`, recrie a API com `docker compose up -d api`.
+O banco tem volume nomeado persistente, `postgres_data`. A API aguarda o healthcheck do PostgreSQL e a web aguarda a API saudável. Dentro da rede Docker o banco é `postgres:5432`; a URL local com `localhost` não é reutilizada no container. As chaves OpenAI/Gemini são repassadas exclusivamente ao backend, nunca ao build/frontend. Após mudar somente o `.env`, recrie a API com `docker compose up -d --no-deps api`; após atualizar o código/SDK, use `docker compose up -d --build --no-deps api`.
 
 ```powershell
 docker compose down
@@ -285,7 +291,7 @@ O frontend continua sendo a página inicial. Use a API em <http://localhost:3000
 | POST | `/conversations/{conversationId}/messages` | Mensagem com `clientMessageId`, `content` e, ao decidir, `confirmationId` |
 | POST | `/handoffs` | Registrar encaminhamento humano simulado, com conversa opcional |
 
-1. Configure `OPENAI_API_KEY` e `OPENAI_MODEL` no `.env` do backend. Reinicie a API. Sem chave, mensagens comuns retornam fallback com encaminhamento simulado; não há interpretação local fingindo ser OpenAI.
+1. No `.env` da raiz, configure `AI_PROVIDER=gemini`, `GEMINI_API_KEY` e `GEMINI_MODEL`. Alternativamente, use `AI_PROVIDER=openai`, `OPENAI_API_KEY` e `OPENAI_MODEL`. Reinicie a API. Sem a chave do provedor selecionado, mensagens comuns retornam fallback com encaminhamento simulado; não há interpretação local fingindo ser um modelo real.
 2. Cadastre um cliente, guarde CSRF, consulte `/orders` e copie um pedido PROCESSING. Crie conversa com `POST /conversations`, corpo `{}`, cookie e CSRF.
 3. Envie a `/conversations/{conversationId}/messages`:
 

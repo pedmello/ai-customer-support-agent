@@ -1,20 +1,10 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
-import { z } from 'zod';
 import type { Logger } from 'pino';
 import { AGENT_SYSTEM_PROMPT } from './agent.prompt.js';
-
-export const intentSchema = z.object({
-  intent: z.enum(['ORDER_STATUS', 'ORDER_PRODUCTS', 'REQUEST_CANCEL', 'CONFIRM_CANCEL', 'DECLINE_CANCEL', 'HUMAN', 'OUT_OF_SCOPE', 'UNKNOWN']),
-  orderId: z.string().nullable(),
-  opening: z.enum(['GREETING', 'ACKNOWLEDGE', 'NONE']),
-}).strict();
-export type AgentIntent = z.infer<typeof intentSchema>;
-export interface ModelInput { content: string; history: Array<{ role: 'USER' | 'ASSISTANT'; content: string }> }
-export interface IntentModel { interpret(input: ModelInput): Promise<AgentIntent> }
-export class AiFailure extends Error {
-  constructor(public readonly code: 'AI_UNAVAILABLE' | 'AI_TIMEOUT' | 'AI_INVALID_RESPONSE') { super(code); }
-}
+import { AiFailure, intentSchema, type IntentModel } from '../ai/intent-model.js';
+// Preserve existing imports while both providers share the same contract.
+export { AiFailure, intentSchema, type AgentIntent, type ModelInput, type IntentModel } from '../ai/intent-model.js';
 
 export function createOpenAiModel(options: { apiKey?: string; model: string; timeoutMs: number; logger: Logger }): IntentModel {
   const client = options.apiKey ? new OpenAI({ apiKey: options.apiKey, timeout: options.timeoutMs, maxRetries: 0 }) : null;

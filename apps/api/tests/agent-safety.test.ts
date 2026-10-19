@@ -25,4 +25,8 @@ describe('deterministic agent boundaries', () => {
     expect(result).not.toContain('support_session=secret');
     expect(result).not.toContain('sk-proj-');
   });
+  it('redacts recognizable Google API keys before inference and persistence', () => {
+    const fictitiousKey = `AIza${'x'.repeat(35)}`;
+    expect(redactSensitive(`Chave: ${fictitiousKey}`)).not.toContain(fictitiousKey);
+  });
 });

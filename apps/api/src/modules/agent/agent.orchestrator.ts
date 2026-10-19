@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AppError } from '../../errors/app-error.js';
 import type { PrismaClient, Prisma, Conversation, HandoffReason } from '../../generated/prisma/client.js';
-import { AiFailure, intentSchema, type AgentIntent, type IntentModel } from '../../integrations/openai/openai.client.js';
+import { AiFailure, intentSchema, type AgentIntent, type IntentModel } from '../../integrations/ai/intent-model.js';
 import type { ProductClient, ProductResult } from '../../integrations/fake-store/fake-store.client.js';
 import { createOrderRepository } from '../orders/order.repository.js';
 import { createOrderService } from '../orders/order.service.js';

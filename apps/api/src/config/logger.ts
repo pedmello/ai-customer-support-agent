@@ -5,7 +5,7 @@ export function createLogger(level = 'info') {
     level,
     base: { service: 'support-api' },
     redact: {
-      paths: ['password', 'token', 'authorization', 'DATABASE_URL', 'OPENAI_API_KEY'],
+      paths: ['password', 'token', 'authorization', 'DATABASE_URL', 'OPENAI_API_KEY', 'GEMINI_API_KEY'],
       censor: '[REDACTED]',
     },
     // Mensagens de drivers podem conter connection strings ou dados pessoais.

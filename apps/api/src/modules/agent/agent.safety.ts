@@ -21,6 +21,7 @@ export function redactSensitive(text: string) {
     .replace(/(?:authorization|cookie|set-cookie|x-csrf-token)\s*:[^\r\n]*/gi, '[CREDENCIAL REMOVIDA]')
     .replace(/\bBearer\s+\S+/gi, '[CREDENCIAL REMOVIDA]')
     .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, '[CREDENCIAL REMOVIDA]')
+    .replace(/\bAIza[A-Za-z0-9_-]{35}\b/g, '[CREDENCIAL REMOVIDA]')
     .replace(/(?:__Host-)?support_session\s*=\s*[^\s;]+/gi, '[CREDENCIAL REMOVIDA]')
     .replace(/\b[A-Za-z0-9_-]{43,}\b/g, '[SEGREDO REMOVIDO]')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[EMAIL REMOVIDO]')

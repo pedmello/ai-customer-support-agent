@@ -1,8 +1,8 @@
 # AI Customer Support Agent
 
-Base de um agente seguro de atendimento por mensagens de texto. **Etapas 1 e 2: infraestrutura, clientes demonstrativos, sessões e pedidos.** Ainda não há chat, histórico, verificação de e-mail, login com senha, recuperação de contas, Fake Store API ou chamadas à OpenAI.
+Agente seguro de atendimento por mensagens de texto. **Etapas 1 a 3: infraestrutura, clientes, sessões, pedidos, conversas persistidas, integração OpenAI, catálogo Fake Store e encaminhamento humano simulado.** A interface visual do chat não foi implementada. Não há verificação de e-mail, login com senha ou recuperação de contas.
 
-O cadastro cria cliente, sessão e três pedidos em uma transação. **A identidade é demonstrativa e não comprova posse do e-mail.** E-mail duplicado não concede acesso à conta existente. O cancelamento REST exige identidade, CSRF, titularidade e estado permitido, mas **não representa uma confirmação conversacional completa**: essa confirmação será responsabilidade do fluxo do agente em outra etapa.
+O cadastro cria cliente, sessão e três pedidos em uma transação. **A identidade é demonstrativa e não comprova posse do e-mail.** E-mail duplicado não concede acesso à conta existente. O cancelamento REST direto exige identidade, CSRF, titularidade e estado permitido; representa uma operação autorizada pelo fluxo chamador. **O fluxo do agente acrescenta confirmação explícita persistida, expiração e uso único**, sem modificar esse contrato direto.
 
 ## Requisitos
 
@@ -39,7 +39,11 @@ No WSL/bash, o equivalente à cópia é `cp .env.example .env`. Para instalaçõ
 | `DATABASE_URL` | Ver `.env.example` | Conexão da API/Prisma executados no host |
 | `TEST_DATABASE_URL` | Ver `.env.example` | Banco exclusivo terminado em `_test` para integração; nunca reutilize o banco da aplicação |
 | `VITE_API_URL` | `http://localhost:3000` | Endereço público da API usado pelos links do frontend |
-| `OPENAI_API_KEY` | vazio | Reservada para etapa futura; não obrigatória, não consumida |
+| `OPENAI_API_KEY` | vazio | Segredo exclusivo da API; sem chave há fallback humano simulado |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Modelo configurável compatível com Responses e Structured Outputs |
+| `OPENAI_TIMEOUT_MS` | `10000` | Timeout OpenAI, entre 100 e 30000 ms; sem retries automáticos |
+| `FAKE_STORE_TIMEOUT_MS` | `5000` | Timeout por produto, entre 100 e 10000 ms |
+| `CONFIRMATION_TTL_SECONDS` | `300` | Validade da confirmação, entre 30 e 900 segundos |
 
 A API valida o ambiente com Zod antes de iniciar. Mensagens de configuração inválida listam apenas nomes de campos. Variáveis já definidas no processo têm precedência sobre `.env`.
 
@@ -89,7 +93,7 @@ docker compose logs -f api
 
 Após aplicar as migrations, os próximos inícios podem usar `npm run docker:up`. Migrations são explícitas e não são executadas por esse atalho nem no startup do servidor. O Compose constrói a API compilada e o frontend estático servido por Nginx, sem bind mounts ou dependências do host. Alterações de código exigem novo build. Os endereços publicados são os mesmos do desenvolvimento local. Não execute o Vite/API no host e seus equivalentes no Docker nas mesmas portas simultaneamente.
 
-O banco tem volume nomeado persistente, `postgres_data`. A API aguarda o healthcheck do PostgreSQL e a web aguarda a API saudável. Dentro da rede Docker o banco é `postgres:5432`; a URL local com `localhost` não é reutilizada no container. A chave OpenAI não é repassada aos serviços nesta etapa.
+O banco tem volume nomeado persistente, `postgres_data`. A API aguarda o healthcheck do PostgreSQL e a web aguarda a API saudável. Dentro da rede Docker o banco é `postgres:5432`; a URL local com `localhost` não é reutilizada no container. A chave OpenAI é repassada exclusivamente ao backend, nunca ao build/frontend. Após mudar o `.env`, recrie a API com `docker compose up -d api`.
 
 ```powershell
 docker compose down
@@ -178,7 +182,7 @@ O comando aplica migrations somente ao banco de testes e verifica o sufixo `_tes
 | GET | `/orders/{orderId}` | Consulta pedido próprio; inexistente/estrangeiro têm o mesmo 404 |
 | POST | `/orders/{orderId}/cancel` | Corpo `{}`, sessão e CSRF; somente PROCESSING |
 
-Os pedidos iniciais têm estados PROCESSING, SHIPPED e CANCELLED. Itens e valores são sintéticos em USD, com preços em centavos e IDs de produtos reservados para associação futura. SHIPPED e CANCELLED retornam 409 sem alterações; cancelamentos concorrentes produzem uma única transição. Nunca envie `customerId` para autorizar uma operação.
+Os pedidos iniciais têm estados PROCESSING, SHIPPED e CANCELLED. Itens e valores são sintéticos em USD, com preços em centavos e IDs 1/2/3 associados ao catálogo demonstrativo Fake Store. SHIPPED e CANCELLED retornam 409 sem alterações; cancelamentos concorrentes produzem uma única transição. Nunca envie `customerId` para autorizar uma operação.
 
 ### Swagger e Postman
 
@@ -231,6 +235,8 @@ apps/
       config/                # validação de ambiente e Pino
       docs/                  # contrato OpenAPI
       integrations/database/ # criação do Prisma Client
+      integrations/openai/   # SDK oficial, intenção estruturada e prompt efetivo
+      integrations/fake-store/ # HTTP isolado, timeout e validação
       middlewares/           # erros e 404
       errors/                # erros de aplicação tipados
       modules/
@@ -238,6 +244,9 @@ apps/
         customers/           # cadastro transacional
         sessions/            # cookie, token, autenticação, CSRF e revogação
         orders/              # consultas e cancelamento atômico
+        conversations/       # histórico, estado, idempotência e transações
+        agent/               # orquestração e decisões determinísticas
+        handoffs/            # encaminhamento humano simulado
         support.routes.ts    # composição dos módulos
     scripts/migrate-test.ts
     tests/                   # unidade e integração em banco separado
@@ -249,6 +258,8 @@ apps/
 docs/
   stage-1.md
   stage-2.md
+  stage-3.md
+  code-walkthrough-stage-3.md
 compose.yaml
 .env.example
 package.json
@@ -260,4 +271,36 @@ As camadas ficam juntas por módulo. Controller trata HTTP; service coordena o c
 
 Logs são JSON em stdout com Pino/Pino HTTP, identificação de requisição e duração. Não são registrados corpos, headers, query strings, connection strings ou mensagens de erro dos drivers. Erros expõem apenas respostas genéricas. O servidor limita JSON a 16 KiB, aplica headers de segurança e encerra conexões no shutdown.
 
-Detalhes do escopo, contratos, erros e segurança: [Etapa 1](docs/stage-1.md) e [Etapa 2](docs/stage-2.md).
+Detalhes históricos: [Etapa 1](docs/stage-1.md) e [Etapa 2](docs/stage-2.md). Implementação atual: [Etapa 3](docs/stage-3.md) e [guia didático do código](docs/code-walkthrough-stage-3.md).
+
+## Agente: Swagger e Postman
+
+O frontend continua sendo a página inicial. Use a API em <http://localhost:3000>, Swagger em <http://localhost:3000/docs/> e a mesma sessão/CSRF do cadastro.
+
+| Método | Endpoint | Função |
+| --- | --- | --- |
+| POST | `/conversations` | Corpo `{}`; criar conversa própria |
+| GET | `/conversations?page=1&pageSize=20` | Listar conversas próprias |
+| GET | `/conversations/{conversationId}?page=1&pageSize=20` | Estado atual e histórico paginado por turnos |
+| POST | `/conversations/{conversationId}/messages` | Mensagem com `clientMessageId`, `content` e, ao decidir, `confirmationId` |
+| POST | `/handoffs` | Registrar encaminhamento humano simulado, com conversa opcional |
+
+1. Configure `OPENAI_API_KEY` e `OPENAI_MODEL` no `.env` do backend. Reinicie a API. Sem chave, mensagens comuns retornam fallback com encaminhamento simulado; não há interpretação local fingindo ser OpenAI.
+2. Cadastre um cliente, guarde CSRF, consulte `/orders` e copie um pedido PROCESSING. Crie conversa com `POST /conversations`, corpo `{}`, cookie e CSRF.
+3. Envie a `/conversations/{conversationId}/messages`:
+
+   ```json
+   {"clientMessageId":"e3f7f4f9-f004-468b-b39b-ff56a74d086e","content":"Quero cancelar o pedido UUID_DO_PEDIDO"}
+   ```
+
+4. Copie `data.conversation.pendingConfirmation.confirmationId`. Confira o UUID do pedido e o prazo. O pedido ainda não foi cancelado.
+5. Envie outra mensagem com **novo** `clientMessageId`, `content` exatamente `CONFIRMAR CANCELAMENTO` e `confirmationId` igual ao recebido. Para desistir, use `DESISTIR` e o mesmo identificador. “Sim” não executa a operação.
+6. Somente `data.code=ORDER_CANCELLED` representa sucesso desta execução; consulte também `/orders/{orderId}`. Confirmação vencida exige nova solicitação. Não reutilize o identificador em outra conversa.
+7. Para consultar produtos, envie `Quais os produtos do pedido UUID_DO_PEDIDO?`. `data.order` contém preços/status oficiais; `data.products` contém dados externos complementares ou indisponibilidade. As descrições externas são texto não confiável.
+8. Para encaminhamento direto: `POST /handoffs` com `{"reason":"CUSTOMER_REQUEST","conversationId":"UUID_DA_CONVERSA"}`. Sem `conversationId` também é permitido. Há somente registro simulado, sem promessa de contato.
+
+Gere UUIDs no Postman com `{{$guid}}` (resolva e conserve o valor para retries) ou PowerShell `[guid]::NewGuid()`. Cada mensagem lógica tem uma chave nova; **retries da mesma mensagem reutilizam o mesmo `clientMessageId` e conteúdo**. Duplicatas concluídas devolvem o resultado original; `409 CONVERSATION_BUSY` permite tentar novamente. Reutilização com outro conteúdo retorna `409 MESSAGE_ID_CONFLICT`. O resultado repetido é um retrato daquela execução, não uma consulta do estado atual; recupere o estado em GET da conversa.
+
+Erros conversacionais tratados retornam HTTP 200 com `data.code` e histórico persistido. Validação, autenticação, CSRF, concorrência e falhas de persistência mantêm `{error:{code,message}}` e status HTTP apropriado. Não há chamada externa real nos testes automatizados. Execute `npm test`, `npm run test:integration`, `npm run typecheck` e `npm run build`; a integração usa somente PostgreSQL separado com mocks OpenAI/Fake Store.
+
+No DBeaver, mantenha `localhost:5434`, banco `support_agent`, usuário/senha configurados. Atualize o schema `public` para ver `conversations`, `conversation_turns`, `messages` e `human_handoffs`, além das tabelas anteriores. Os relacionamentos e consultas de estudo estão em [docs/stage-3.md](docs/stage-3.md).

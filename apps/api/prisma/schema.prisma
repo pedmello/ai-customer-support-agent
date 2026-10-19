@@ -22,6 +22,8 @@ model Customer {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   sessions   Session[]
   orders     Order[]
+  conversations Conversation[]
+  handoffs HumanHandoff[]
 
   @@map("customers")
 }
@@ -66,4 +68,91 @@ model OrderItem {
 
   @@unique([orderId, productId])
   @@map("order_items")
+}
+
+enum ConversationState {
+  ACTIVE
+  AWAITING_CONFIRMATION
+  HUMAN_REQUESTED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum HandoffReason {
+  CUSTOMER_REQUEST
+  OUT_OF_SCOPE
+  AI_UNAVAILABLE
+  INSUFFICIENT_INFORMATION
+  SAFETY_FAILURE
+}
+
+enum HandoffStatus {
+  OPEN
+}
+
+model Conversation {
+  conversationId String @id @default(uuid()) @map("conversation_id") @db.Uuid
+  customerId String @map("customer_id") @db.Uuid
+  state ConversationState @default(ACTIVE)
+  lastOrderId String? @map("last_order_id") @db.Uuid
+  pendingOrderId String? @map("pending_order_id") @db.Uuid
+  confirmationId String? @map("confirmation_id") @db.Uuid
+  confirmationExpiresAt DateTime? @map("confirmation_expires_at") @db.Timestamptz(3)
+  leaseId String? @map("lease_id") @db.Uuid
+  busyUntil DateTime? @map("busy_until") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  customer Customer @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+  turns ConversationTurn[]
+  handoffs HumanHandoff[]
+
+  @@index([customerId, createdAt, conversationId])
+  @@unique([conversationId, customerId])
+  @@map("conversations")
+}
+
+// A turn persists the input and the response atomically, and is the idempotency record.
+model ConversationTurn {
+  turnId String @id @default(uuid()) @map("turn_id") @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+  clientMessageId String @map("client_message_id") @db.Uuid
+  inputHash String @map("input_hash") @db.Char(64)
+  result Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  conversation Conversation @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+  messages Message[]
+
+  @@unique([conversationId, clientMessageId])
+  @@index([conversationId, createdAt, turnId])
+  @@map("conversation_turns")
+}
+
+model Message {
+  messageId String @id @default(uuid()) @map("message_id") @db.Uuid
+  turnId String @map("turn_id") @db.Uuid
+  role MessageRole
+  content String @db.VarChar(4000)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  turn ConversationTurn @relation(fields: [turnId], references: [turnId], onDelete: Cascade)
+
+  @@unique([turnId, role])
+  @@map("messages")
+}
+
+model HumanHandoff {
+  handoffId String @id @default(uuid()) @map("handoff_id") @db.Uuid
+  customerId String @map("customer_id") @db.Uuid
+  conversationId String? @map("conversation_id") @db.Uuid
+  reason HandoffReason
+  status HandoffStatus @default(OPEN)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  customer Customer @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId, customerId], references: [conversationId, customerId], onDelete: Cascade)
+
+  @@unique([conversationId])
+  @@index([customerId, createdAt])
+  @@map("human_handoffs")
 }

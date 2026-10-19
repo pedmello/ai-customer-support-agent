@@ -2,10 +2,11 @@ import type { Prisma, PrismaClient } from '../../generated/prisma/client.js';
 
 export type OrderRecord = Prisma.OrderGetPayload<{ include: { items: true } }>;
 
-export function createOrderRepository(database: PrismaClient) {
+export function createOrderRepository(database: PrismaClient, transaction?: Prisma.TransactionClient) {
+  const client = transaction ?? database;
   return {
     findOwn(customerId: string, orderId: string) {
-      return database.order.findFirst({ where: { customerId, orderId }, include: { items: true } });
+      return client.order.findFirst({ where: { customerId, orderId }, include: { items: true } });
     },
     async listOwn(customerId: string, page: number, pageSize: number) {
       const [orders, totalItems] = await database.$transaction([
@@ -20,14 +21,15 @@ export function createOrderRepository(database: PrismaClient) {
     async cancelProcessing(customerId: string, orderId: string, now: Date) {
       // O PostgreSQL reavalia este predicado ao adquirir o lock da linha.
       // Uma segunda requisição concorrente não pode atualizar CANCELLED novamente.
-      return database.$transaction(async (transaction) => {
-        const updated = await transaction.order.updateMany({
+      const execute = async (tx: Prisma.TransactionClient) => {
+        const updated = await tx.order.updateMany({
           where: { customerId, orderId, status: 'PROCESSING' },
           data: { status: 'CANCELLED', cancelledAt: now, updatedAt: now },
         });
         if (updated.count === 0) return null;
-        return transaction.order.findFirst({ where: { customerId, orderId }, include: { items: true } });
-      });
+        return tx.order.findFirst({ where: { customerId, orderId }, include: { items: true } });
+      };
+      return transaction ? execute(transaction) : database.$transaction(execute);
     },
   };
 }

@@ -31,6 +31,11 @@ services:
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3000}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-86400}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_TIMEOUT_MS: ${OPENAI_TIMEOUT_MS:-10000}
+      FAKE_STORE_TIMEOUT_MS: ${FAKE_STORE_TIMEOUT_MS:-5000}
+      CONFIRMATION_TTL_SECONDS: ${CONFIRMATION_TTL_SECONDS:-300}
       DATABASE_URL: postgresql://${POSTGRES_USER:-support}:${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-support_agent}?schema=public
     ports:
       - "127.0.0.1:${API_PORT:-3000}:3000"

@@ -13,6 +13,10 @@ const envSchema = z.object({
   })).default('http://localhost:5173'),
   SESSION_TTL_SECONDS: z.coerce.number().int().min(60).max(604800).default(86400),
   OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().trim().min(1).max(100).default('gpt-4.1-mini'),
+  OPENAI_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(10000),
+  FAKE_STORE_TIMEOUT_MS: z.coerce.number().int().min(100).max(10000).default(5000),
+  CONFIRMATION_TTL_SECONDS: z.coerce.number().int().min(30).max(900).default(300),
 });
 
 export function parseEnv(input: Record<string, unknown>) {

@@ -3,6 +3,8 @@ import { env } from './config/env.js';
 import { createLogger } from './config/logger.js';
 import { createDatabase } from './integrations/database/prisma.js';
 import { createHealthRepository } from './modules/health/health.repository.js';
+import { createOpenAiModel } from './integrations/openai/openai.client.js';
+import { createFakeStoreClient } from './integrations/fake-store/fake-store.client.js';
 
 const logger = createLogger(env.LOG_LEVEL);
 const database = createDatabase(env.DATABASE_URL);
@@ -13,6 +15,11 @@ const app = createApp({
     database,
     sessionPolicy: { ttlSeconds: env.SESSION_TTL_SECONDS, secure: new URL(env.API_PUBLIC_URL).protocol === 'https:' },
     allowedOrigins: [new URL(env.API_PUBLIC_URL).origin, env.WEB_ORIGIN],
+    agent: {
+      model: createOpenAiModel({ ...(env.OPENAI_API_KEY ? { apiKey: env.OPENAI_API_KEY } : {}), model: env.OPENAI_MODEL, timeoutMs: env.OPENAI_TIMEOUT_MS, logger }),
+      products: createFakeStoreClient({ timeoutMs: env.FAKE_STORE_TIMEOUT_MS, logger }),
+      confirmationTtlSeconds: env.CONFIRMATION_TTL_SECONDS,
+    },
   },
 });
 const server = app.listen(env.API_PORT, env.API_HOST, () => {

@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client"
+  output = "../src/generated/prisma"
+  moduleFormat = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrderStatus {
+  PROCESSING
+  SHIPPED
+  CANCELLED
+}
+
+model Customer {
+  customerId String    @id @default(uuid()) @map("customer_id") @db.Uuid
+  name       String    @db.VarChar(120)
+  email      String    @unique @db.VarChar(254)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  sessions   Session[]
+  orders     Order[]
+
+  @@map("customers")
+}
+
+model Session {
+  sessionId  String    @id @default(uuid()) @map("session_id") @db.Uuid
+  customerId String    @map("customer_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  customer   Customer  @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Order {
+  orderId     String      @id @default(uuid()) @map("order_id") @db.Uuid
+  customerId  String      @map("customer_id") @db.Uuid
+  status      OrderStatus
+  currency    String      @default("USD") @db.Char(3)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  cancelledAt DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+  customer    Customer    @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+  items       OrderItem[]
+
+  @@index([customerId, createdAt, orderId])
+  @@map("orders")
+}
+
+model OrderItem {
+  orderItemId    String @id @default(uuid()) @map("order_item_id") @db.Uuid
+  orderId        String @map("order_id") @db.Uuid
+  productId      Int    @map("product_id")
+  title          String @db.VarChar(200)
+  quantity       Int
+  unitPriceCents Int    @map("unit_price_cents")
+  order          Order @relation(fields: [orderId], references: [orderId], onDelete: Cascade)
+
+  @@unique([orderId, productId])
+  @@map("order_items")
+}

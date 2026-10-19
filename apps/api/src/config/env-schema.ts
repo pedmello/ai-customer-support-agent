@@ -1,0 +1,25 @@
+import { z } from 'zod';
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  API_HOST: z.string().min(1).default('0.0.0.0'),
+  API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  DATABASE_URL: z.url().pipe(z.string().refine((value) => ['postgres:', 'postgresql:'].includes(new URL(value).protocol))),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  API_PUBLIC_URL: z.url().pipe(z.string().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol))).default('http://localhost:3000'),
+  WEB_ORIGIN: z.url().pipe(z.string().refine((value) => {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && url.origin === value;
+  })).default('http://localhost:5173'),
+  SESSION_TTL_SECONDS: z.coerce.number().int().min(60).max(604800).default(86400),
+  OPENAI_API_KEY: z.string().optional(),
+});
+
+export function parseEnv(input: Record<string, unknown>) {
+  const result = envSchema.safeParse(input);
+  if (!result.success) {
+    const fields = [...new Set(result.error.issues.map((issue) => issue.path.join('.')))];
+    throw new Error(`Invalid environment variables: ${fields.join(', ')}`);
+  }
+  return result.data;
+}

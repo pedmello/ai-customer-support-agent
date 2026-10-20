@@ -25,8 +25,8 @@ describe('session secrets', () => {
 
 describe('customer input', () => {
   it('trims names and normalizes email case and surrounding whitespace', () => {
-    expect(registerCustomerSchema.parse({ name: '  Ana Silva  ', email: '  ANA@Example.COM  ' }))
-      .toEqual({ name: 'Ana Silva', email: 'ana@example.com' });
+    expect(registerCustomerSchema.parse({ name: '  Ana Silva  ', email: '  ANA@Example.COM  ', password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!' }))
+      .toEqual({ name: 'Ana Silva', email: 'ana@example.com', password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!' });
   });
 
   it.each([
@@ -35,6 +35,6 @@ describe('customer input', () => {
     { name: 'Ana', email: 'invalid' },
     { name: 'Ana', email: 'ana@example.com', customerId: 'supplied' },
   ])('rejects invalid or unexpected input', (input) => {
-    expect(registerCustomerSchema.safeParse(input).success).toBe(false);
+    expect(registerCustomerSchema.safeParse({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', ...input }).success).toBe(false);
   });
 });

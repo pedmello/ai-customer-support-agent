@@ -21,6 +21,7 @@ const session = {
 function mockApi() {
   return {
     setCsrf: vi.fn(),
+    login: vi.fn(), requestRecovery: vi.fn(), resetPassword: vi.fn(),
     orderByNumber: vi.fn(),
     current: vi.fn().mockResolvedValue(session),
     register: vi.fn().mockResolvedValue(session),
@@ -48,8 +49,106 @@ async function setup(client = mockApi()) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 describe("Estado do atendimento e segurança", () => {
+  it("mantém o envio restrito à conversa de origem e permite trocar a seleção durante a espera", async () => {
+    const { result, client } = await setup();
+    let release!: (value: Outcome) => void;
+    client.send.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    let delivery!: Promise<unknown>;
+    act(() => { delivery = result.current.send("Consultar pedido"); });
+    expect(result.current.busy).toBe("");
+    const other = { ...history, conversationId: "other" };
+    client.history.mockResolvedValueOnce(other);
+    await act(() => result.current.select("other"));
+    expect(result.current.selectedId).toBe("other");
+    expect(result.current.sending).toBeUndefined();
+    await act(async () => {
+      release({ clientMessageId: "result", code: "ORDER_STATUS", reply: "Resposta da primeira conversa", conversation });
+      await delivery;
+    });
+    expect(result.current.selectedId).toBe("other");
+    expect(result.current.histories[conversation.conversationId]!.turns.at(-1)?.messages.at(-1)?.content).toBe("Resposta da primeira conversa");
+  });
+  it("não apaga a resposta confirmada quando a sincronização devolve um histórico anterior", async () => {
+    const { result } = await setup();
+    await act(() => result.current.send("Consultar pedido"));
+    expect(result.current.history?.turns.at(-1)?.messages.at(-1)?.content).toBe("Pedido em processamento.");
+  });
+  it("recupera por GET uma mensagem persistida quando o POST perde sua resposta", async () => {
+    const { result, client } = await setup();
+    client.send.mockImplementationOnce(async (_id, input) => {
+      client.history.mockResolvedValue({ ...history, turns: [{
+        turnId: "saved", clientMessageId: input.clientMessageId, createdAt: history.createdAt,
+        messages: [{ messageId: "saved-reply", role: "ASSISTANT", content: "Resultado salvo", createdAt: history.createdAt }],
+      }] });
+      throw new ApiError(0, "NETWORK_ERROR");
+    });
+    await act(() => result.current.send("Consultar pedido"));
+    expect(result.current.history?.turns.at(-1)?.messages.at(-1)?.content).toBe("Resultado salvo");
+    expect(result.current.retry).toBeUndefined();
+    expect(client.send).toHaveBeenCalledTimes(1);
+  });
+  it("ignora respostas atrasadas depois de encerrar a sessão", async () => {
+    const { result, client } = await setup();
+    let release!: (value: Outcome) => void;
+    client.send.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    let delivery!: Promise<unknown>;
+    act(() => { delivery = result.current.send("Consultar pedido"); });
+    await act(() => result.current.logout());
+    await act(async () => {
+      release({ clientMessageId: "late", code: "ORDER_STATUS", reply: "Resposta antiga", conversation });
+      await delivery;
+    });
+    expect(result.current.session).toBeNull();
+    expect(result.current.histories).toEqual({});
+  });
+  it("atualiza a resposta imediatamente mesmo se o GET de sincronização continuar pendente", async () => {
+    const { result, client } = await setup();
+    client.history.mockImplementationOnce(() => new Promise(() => {}));
+    await act(() => result.current.send("Consultar pedido"));
+    expect(result.current.sending).toBeUndefined();
+    expect(result.current.history?.turns.at(-1)?.messages.at(-1)?.content).toBe("Pedido em processamento.");
+  });
+  it("permite envios em conversas independentes e restringe erros e retries à origem", async () => {
+    const { result, client } = await setup();
+    let rejectFirst!: (reason: unknown) => void;
+    client.send.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }));
+    let first!: Promise<unknown>;
+    act(() => { first = result.current.send("Primeira conversa"); });
+    const other = { ...history, conversationId: "other" };
+    client.history.mockResolvedValueOnce(other);
+    await act(() => result.current.select("other"));
+    client.send.mockResolvedValueOnce({ clientMessageId: "second", code: "AI_TIMEOUT", reply: "Fallback seguro", conversation: other });
+    await act(() => result.current.send("Outra conversa"));
+    expect(client.send).toHaveBeenCalledTimes(2);
+    expect(result.current.history?.turns.at(-1)?.messages.at(-1)?.content).toBe("Fallback seguro");
+    await act(async () => { rejectFirst(new ApiError(0, "NETWORK_ERROR")); await first; });
+    expect(result.current.selectedId).toBe("other");
+    expect(result.current.retry).toBeUndefined();
+    expect(result.current.messageError).toBeFalsy();
+    expect(result.current.error).toBe("");
+    await act(() => result.current.select(conversation.conversationId));
+    expect(result.current.retry?.input.content).toBe("Primeira conversa");
+  });
+  it("sincroniza automaticamente um resultado persistido depois do timeout sem reenviar POST", async () => {
+    const { result, client } = await setup();
+    vi.useFakeTimers();
+    client.send.mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR"));
+    await act(() => result.current.send("Consultar pedido"));
+    const input = client.send.mock.calls[0]![1];
+    expect(result.current.retry).toBeDefined();
+    client.history.mockResolvedValue({ ...history, turns: [{
+      turnId: "late", clientMessageId: input.clientMessageId, createdAt: history.createdAt,
+      messages: [{ messageId: "late-reply", role: "ASSISTANT", content: "Resposta recuperada automaticamente", createdAt: history.createdAt }],
+    }] });
+    await act(() => vi.advanceTimersByTimeAsync(1500));
+    expect(result.current.history?.turns.at(-1)?.messages.at(-1)?.content).toBe("Resposta recuperada automaticamente");
+    expect(result.current.retry).toBeUndefined();
+    expect(result.current.messageError).toBe("");
+    expect(client.send).toHaveBeenCalledTimes(1);
+  });
   it("restaura sessão e histórico a partir da API sem persistir tokens no browser", async () => {
     const storage = vi.spyOn(Storage.prototype, "setItem");
     const { result, client } = await setup();
@@ -79,7 +178,7 @@ describe("Estado do atendimento e segurança", () => {
       new ApiError(409, "EMAIL_ALREADY_REGISTERED"),
     );
     const { result } = await setup(client);
-    await act(() => result.current.register("Ana", "ana@example.test"));
+    await act(() => result.current.register("Ana", "ana@example.test", "Test-password-123!", "Test-password-123!"));
     expect(result.current.session).toBeNull();
     expect(result.current.error).toContain("já está cadastrado");
   });

@@ -1,8 +1,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, ApiError, decisionMessage } from "./api";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 describe("HTTP seguro", () => {
+  it("encerra a espera HTTP no prazo sem reenviar uma mutação", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    }));
+    const pending = createApi('', fetcher).send('conversation', decisionMessage('confirmation', true)).catch(error => error);
+    await vi.advanceTimersByTimeAsync(45000);
+    expect(await pending).toMatchObject({ status: 0, code: 'NETWORK_ERROR' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('keeps passwords and recovery codes exact, sends credentials, and never adds customerId', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response('{}'));
+    const api = createApi('', fetcher);
+    await api.register(' Ana ', ' ANA@example.test ', '  Exact Password  ', '  Exact Password  ');
+    await api.login(' ANA@example.test ', '  Exact Password  ');
+    await api.requestRecovery(' ANA@example.test ');
+    await api.resetPassword(' ANA@example.test ', '00123456', '  New Password  ', '  New Password  ');
+    const bodies = fetcher.mock.calls.map(([, init]) => JSON.parse(init?.body as string));
+    expect(bodies[0]).toEqual({ name: 'Ana', email: 'ana@example.test', password: '  Exact Password  ', passwordConfirmation: '  Exact Password  ' });
+    expect(bodies[1]).toEqual({ email: 'ana@example.test', password: '  Exact Password  ' });
+    expect(bodies[3].code).toBe('00123456'); expect(bodies[3].password).toBe('  New Password  ');
+    expect(fetcher.mock.calls.every(([, init]) => init?.credentials === 'include')).toBe(true);
+    expect(bodies.every((body) => !('customerId' in body))).toBe(true);
+  });
   it("envia cookie e CSRF sem customerId e usa o protocolo exato de confirmação", async () => {
     const fetcher = vi
       .fn()
@@ -51,11 +75,11 @@ describe("HTTP seguro", () => {
             ),
         ),
     );
-    await expect(api.register("Ana", "ana@example.test")).rejects.toMatchObject(
+    await expect(api.register("Ana", "ana@example.test", "Test-password-123!", "Test-password-123!")).rejects.toMatchObject(
       { status: 409, code: "EMAIL_ALREADY_REGISTERED" },
     );
     await expect(
-      api.register("Ana", "ana@example.test"),
+      api.register("Ana", "ana@example.test", "Test-password-123!", "Test-password-123!"),
     ).rejects.not.toHaveProperty("message", "private");
   });
   it("percorre todas as páginas de pedidos", async () => {

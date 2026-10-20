@@ -14,6 +14,18 @@ import type {
   Session,
 } from "../types";
 
+// A response already confirmed by POST must survive an older in-flight GET.
+function mergeHistory(previous: History | undefined, incoming: History): History {
+  if (!previous) return incoming;
+  const incomingIds = new Set(incoming.turns.map(turn => turn.clientMessageId));
+  const missing = previous.turns.filter(turn => !incomingIds.has(turn.clientMessageId));
+  const older = new Date(incoming.updatedAt).getTime() < new Date(previous.updatedAt).getTime();
+  return {
+    ...(missing.length || older ? previous : incoming),
+    turns: [...incoming.turns, ...missing].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  };
+}
+
 export function useSupport(client: SupportApi = api) {
   const [session, setSession] = useState<Session | null>(null);
   const [booting, setBooting] = useState(true);
@@ -25,15 +37,52 @@ export function useSupport(client: SupportApi = api) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [histories, setHistories] = useState<Record<string, History>>({});
+  const historiesRef = useRef<Record<string, History>>({});
+  const epoch = useRef(0);
+  const revision = useRef(0);
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [selectedId, setSelectedId] = useState<string>();
-  const [retry, setRetry] = useState<{
-    conversationId: string;
-    input: SendMessage;
-  }>();
-  const [sending, setSending] = useState<SendMessage>();
+  const pendingRef = useRef(new Map<string, SendMessage>());
+  const [pending, setPending] = useState<Record<string, SendMessage>>({});
+  const retryRef = useRef(new Map<string, SendMessage>());
+  const [retries, setRetries] = useState<Record<string, SendMessage>>({});
+  const [messageErrors, setMessageErrors] = useState<Record<string, string>>({});
+  const [loadingHistories, setLoadingHistories] = useState<Record<string, boolean>>({});
+  const recoveryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => () => {
+    epoch.current++;
+    recoveryTimers.current.forEach(clearTimeout);
+  }, []);
+
+  const storeHistory = useCallback((incoming: History) => {
+    const history = mergeHistory(historiesRef.current[incoming.conversationId], incoming);
+    historiesRef.current = { ...historiesRef.current, [history.conversationId]: history };
+    setHistories(historiesRef.current);
+    setConversations(old => old.map(item => item.conversationId === history.conversationId ? history : item));
+    return history;
+  }, []);
+  function forgetRetry(id: string) {
+    retryRef.current.delete(id);
+    setRetries(Object.fromEntries(retryRef.current));
+    const timer = recoveryTimers.current.get(id);
+    if (timer) clearTimeout(timer);
+    recoveryTimers.current.delete(id);
+  }
 
   const clear = useCallback(() => {
+    epoch.current++;
+    revision.current++;
+    historiesRef.current = {};
+    pendingRef.current.clear();
+    retryRef.current.clear();
+    recoveryTimers.current.forEach(clearTimeout);
+    recoveryTimers.current.clear();
+    setPending({});
+    setRetries({});
+    setMessageErrors({});
+    setLoadingHistories({});
+    locked.current = false;
+    setBusy("");
     client.setCsrf();
     setSession(null);
     setOrders([]);
@@ -41,28 +90,27 @@ export function useSupport(client: SupportApi = api) {
     setHistories({});
     setOutcomes({});
     setSelectedId(undefined);
-    setRetry(undefined);
-    setSending(undefined);
   }, [client]);
   const loadLists = useCallback(async () => {
+    const scope = epoch.current, version = revision.current;
     const [newOrders, newConversations] = await Promise.all([
       client.orders(),
       client.conversations(),
     ]);
-    setOrders(newOrders);
-    setConversations(newConversations);
+    if (scope === epoch.current && version === revision.current) {
+      setOrders(newOrders);
+      setConversations(newConversations);
+    }
     return newConversations;
   }, [client]);
   const loadHistory = useCallback(
     async (id: string) => {
+      const scope = epoch.current;
       const history = await client.history(id);
-      setHistories((old) => ({ ...old, [id]: history }));
-      setConversations((old) =>
-        old.map((item) => (item.conversationId === id ? history : item)),
-      );
-      return history;
+      if (scope !== epoch.current) return undefined;
+      return storeHistory(history);
     },
-    [client],
+    [client, storeHistory],
   );
   const boot = useCallback(async () => {
     setBooting(true);
@@ -116,33 +164,60 @@ export function useSupport(client: SupportApi = api) {
     }
   }
   async function newConversation() {
+    const scope = epoch.current;
     const conversation = await client.createConversation();
+    if (scope !== epoch.current) return undefined;
+    revision.current++;
     setConversations((old) => [conversation, ...old]);
-    setHistories((old) => ({
-      ...old,
-      [conversation.conversationId]: { ...conversation, turns: [] },
-    }));
+    storeHistory({ ...conversation, turns: [] });
     setSelectedId(conversation.conversationId);
     return conversation.conversationId;
   }
-  async function deliver(conversationId: string, input: SendMessage) {
-    setSending(input);
-    setRetry(undefined);
+  async function reconcile(conversationId: string, input: SendMessage, scope: number) {
+    const loaded = await client.history(conversationId);
+    if (scope !== epoch.current || retryRef.current.get(conversationId)?.clientMessageId !== input.clientMessageId) return false;
+    storeHistory(loaded);
+    // Match the actual GET response, never the locally optimistic history.
+    if (!loaded.turns.some(turn => turn.clientMessageId === input.clientMessageId)) return false;
+    revision.current++;
+    forgetRetry(conversationId);
+    setMessageErrors(old => ({ ...old, [conversationId]: "" }));
+    void loadLists().catch(cause => {
+      if (scope === epoch.current && cause instanceof ApiError && cause.status === 401) clear();
+    });
+    return true;
+  }
+  function scheduleReconciliation(conversationId: string, input: SendMessage, scope: number, attempt = 0) {
+    const delays = [1500, 3000, 6000];
+    if (attempt >= delays.length) return;
+    recoveryTimers.current.set(conversationId, setTimeout(async () => {
+      if (scope !== epoch.current || retryRef.current.get(conversationId)?.clientMessageId !== input.clientMessageId) return;
+      try { if (await reconcile(conversationId, input, scope)) return; }
+      catch (cause) { if (cause instanceof ApiError && cause.status === 401) { clear(); return; } }
+      scheduleReconciliation(conversationId, input, scope, attempt + 1);
+    }, delays[attempt]));
+  }
+  async function deliver(conversationId: string, input: SendMessage, repeating = false) {
+    if (pendingRef.current.has(conversationId) || (!repeating && retryRef.current.has(conversationId))) return;
+    const scope = epoch.current;
+    pendingRef.current.set(conversationId, input);
+    setPending(Object.fromEntries(pendingRef.current));
+    forgetRetry(conversationId);
+    setMessageErrors(old => ({ ...old, [conversationId]: "" }));
     try {
       const result = await client.send(conversationId, input);
-      setSending(undefined);
+      if (scope !== epoch.current) return;
+      revision.current++;
       setOutcomes((old) => ({ ...old, [input.clientMessageId]: result }));
       // Commit the confirmed result locally before refreshing. A failed refresh must never resend a successful mutation.
-      setHistories((old) => {
-        const previous = old[conversationId];
+      {
+        const previous = historiesRef.current[conversationId];
         const turns =
           previous?.turns.filter(
             (turn) => turn.clientMessageId !== input.clientMessageId,
           ) ?? [];
         const now = new Date().toISOString();
-        return {
-          ...old,
-          [conversationId]: {
+        storeHistory({
             ...result.conversation,
             turns: [
               ...turns,
@@ -166,29 +241,23 @@ export function useSupport(client: SupportApi = api) {
                 ],
               },
             ],
-          },
-        };
-      });
-      setConversations((old) =>
-        old.map((item) =>
-          item.conversationId === conversationId ? result.conversation : item,
-        ),
-      );
+        });
+      }
       if (result.order)
         setOrders((old) =>
           old.map((order) =>
             order.orderId === result.order!.orderId ? result.order! : order,
           ),
         );
-      try {
-        await loadHistory(conversationId);
-        await loadLists();
-      } catch {
-        setNotice(
-          "Resposta recebida. Não foi possível atualizar todos os dados; use Atualizar para sincronizar.",
-        );
-      }
+      // POST already returned the authoritative result. Refresh in background, without holding the composer.
+      void Promise.all([loadHistory(conversationId), loadLists()]).catch(cause => {
+        if (scope !== epoch.current) return;
+        if (cause instanceof ApiError && cause.status === 401) clear();
+        else setNotice("Resposta recebida. Não foi possível atualizar todos os dados; use Atualizar para sincronizar.");
+      });
     } catch (cause) {
+      if (scope !== epoch.current) return;
+      if (cause instanceof ApiError && cause.status === 401) { clear(); return; }
       if (
         cause instanceof ApiError &&
         (cause.status === 0 ||
@@ -196,11 +265,19 @@ export function useSupport(client: SupportApi = api) {
           cause.status === 429 ||
           cause.code === "CONVERSATION_BUSY")
       ) {
-        setRetry({ conversationId, input });
+        retryRef.current.set(conversationId, input);
+        setRetries(Object.fromEntries(retryRef.current));
+        try { if (await reconcile(conversationId, input, scope)) return; }
+        catch (readError) { if (readError instanceof ApiError && readError.status === 401) { clear(); return; } }
+        if (scope !== epoch.current) return;
+        scheduleReconciliation(conversationId, input, scope);
       }
-      throw cause;
+      setMessageErrors(old => ({ ...old, [conversationId]: cause instanceof Error ? cause.message : "Não foi possível concluir a mensagem." }));
     } finally {
-      setSending(undefined);
+      if (scope === epoch.current) {
+        pendingRef.current.delete(conversationId);
+        setPending(Object.fromEntries(pendingRef.current));
+      }
     }
   }
   return {
@@ -217,12 +294,26 @@ export function useSupport(client: SupportApi = api) {
     outcomes,
     selectedId,
     history: selectedId ? histories[selectedId] : undefined,
-    retry,
-    sending,
+    retry: selectedId && retries[selectedId] ? { conversationId: selectedId, input: retries[selectedId]! } : undefined,
+    sending: selectedId ? pending[selectedId] : undefined,
+    messageBusy: selectedId && pending[selectedId] ? "Consultando o assistente…" : "",
+    messageError: selectedId ? messageErrors[selectedId] : undefined,
+    pendingConversations: pending,
+    historyLoading: !!(selectedId && loadingHistories[selectedId]),
     dismissError: () => setError(""),
-    register: (name: string, email: string) =>
+    login: (email: string, password: string) =>
+      perform('Entrando…', async () => {
+        const current = await client.login(email, password);
+        client.setCsrf(current.csrfToken);
+        setSession(current);
+        try {
+          const list = await loadLists();
+          if (list[0]) await loadHistory(list[0].conversationId);
+        } catch { setNotice('Login concluído. Use Atualizar para carregar seus dados.'); }
+      }),
+    register: (name: string, email: string, password: string, passwordConfirmation: string) =>
       perform("Criando sua demonstração…", async () => {
-        const current = await client.register(name, email);
+        const current = await client.register(name, email, password, passwordConfirmation);
         client.setCsrf(current.csrfToken);
         setSession(current);
         try {
@@ -243,54 +334,58 @@ export function useSupport(client: SupportApi = api) {
         await loadLists();
         if (selectedId) await loadHistory(selectedId);
       }),
-    select: (id: string) =>
-      perform("Carregando conversa…", async () => {
+    select: async (id: string) => {
+      const scope = epoch.current;
+      setSelectedId(id);
+      setLoadingHistories(old => ({ ...old, [id]: true }));
+      try {
         await loadHistory(id);
-        setSelectedId(id);
-      }),
+      } catch (cause) {
+        if (scope !== epoch.current) return;
+        if (cause instanceof ApiError && cause.status === 401) clear();
+        else setMessageErrors(old => ({ ...old, [id]: cause instanceof Error ? cause.message : "Não foi possível carregar a conversa." }));
+      } finally {
+        if (scope === epoch.current) setLoadingHistories(old => ({ ...old, [id]: false }));
+      }
+    },
     create: () => perform("Criando conversa…", newConversation),
-    send: (content: string) =>
-      perform("Consultando o assistente…", async () => {
-        if (retry) return;
-        const id = selectedId ?? (await newConversation());
+    send: async (content: string) => {
+        const id = selectedId ?? (await perform("Criando conversa…", newConversation));
+        if (!id) return;
         await deliver(id, {
           clientMessageId: crypto.randomUUID(),
           content: content.trim(),
         });
-      }),
-    askOrder: (orderNumber: number, cancel: boolean) =>
-      perform("Consultando o assistente…", async () => {
-        if (retry) return;
+      },
+    askOrder: async (orderNumber: number, cancel: boolean) => {
         // A fresh conversation gives this order action an unambiguous, independent context.
-        const id = await newConversation();
+        const id = await perform("Criando conversa…", newConversation);
+        if (!id) return;
         await deliver(id, {
           clientMessageId: crypto.randomUUID(),
           content: cancel
             ? `Quero cancelar o pedido #${orderNumber}`
             : `Qual o status do pedido #${orderNumber}?`,
         });
-      }),
-    decide: (confirm: boolean) =>
-      perform("Processando sua decisão…", async () => {
+      },
+    decide: async (confirm: boolean) => {
         const pending = selectedId
           ? histories[selectedId]?.pendingConfirmation
           : null;
-        if (!selectedId || !pending || retry) return;
+        if (!selectedId || !pending) return;
         await deliver(
           selectedId,
           decisionMessage(pending.confirmationId, confirm),
         );
-      }),
-    retrySend: () =>
-      perform("Reenviando a mesma mensagem…", async () => {
-        if (retry) {
-          setSelectedId(retry.conversationId);
-          await deliver(retry.conversationId, retry.input);
-        }
-      }),
+      },
+    retrySend: async () => {
+      const input = selectedId ? retryRef.current.get(selectedId) : undefined;
+      if (selectedId && input) await deliver(selectedId, input, true);
+    },
     handoff: () =>
       perform("Registrando solicitação…", async () => {
         const id = selectedId ?? (await newConversation());
+        if (!id || pendingRef.current.has(id) || retryRef.current.has(id)) return;
         await client.handoff(id);
         setNotice(
           "Solicitação de atendimento humano registrada em simulação. Não há equipe conectada nem contato agendado.",

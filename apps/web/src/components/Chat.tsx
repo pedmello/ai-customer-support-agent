@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { SupportState } from "../hooks/useSupport";
 import { conversationTitle } from "./Conversations";
-import { date, EmptyState, Icon, time } from "./ui";
+import { date, EmptyState, ErrorBanner, Icon, time } from "./ui";
 import { OrderCard } from "./Orders";
 import { ExternalProducts } from "./ExternalProducts";
 import { publicOrderText } from "../services/order-presentation";
@@ -67,14 +67,14 @@ function ConfirmationPanel({ support }: { support: SupportState }) {
           <small>Válida até {time(pending.expiresAt)}</small>
           <div>
             <button
-              disabled={!!support.busy || !!support.retry}
+              disabled={!!support.busy || !!support.messageBusy || !!support.retry}
               onClick={() => void support.decide(false)}
             >
               Manter pedido
             </button>
             <button
               className="danger"
-              disabled={!!support.busy || !!support.retry}
+              disabled={!!support.busy || !!support.messageBusy || !!support.retry}
               onClick={() => void support.decide(true)}
             >
               Cancelar pedido
@@ -96,6 +96,7 @@ export function Chat({
   const scroll = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
   const history = support.history;
+  const outgoing = support.sending ?? support.retry?.input;
   useEffect(() => {
     setDraft("");
     nearBottom.current = true;
@@ -110,14 +111,14 @@ export function Chat({
   }, [history, support.sending, support.busy]);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || support.busy || support.retry) return;
+    if (!draft.trim() || support.busy || support.messageBusy || support.retry) return;
     const content = draft.trim();
     setDraft("");
     nearBottom.current = true;
     await support.send(content);
   }
   return (
-    <section className="chat-panel">
+    <section className="chat-panel" aria-busy={!!support.sending}>
       <header className="chat-heading">
         <span className="assistant-icon">
           <Icon name="spark" />
@@ -134,7 +135,7 @@ export function Chat({
           </small>
         </div>
         <button
-          disabled={!!support.busy || !!support.retry}
+          disabled={!!support.busy || !!support.messageBusy || !!support.retry}
           onClick={() => void support.handoff()}
         >
           <Icon name="headset" size={15} />
@@ -155,7 +156,8 @@ export function Chat({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {!history?.turns.length && !support.sending && (
+        {support.historyLoading && <p className="list-empty muted" role="status">Carregando histórico…</p>}
+        {!history?.turns.length && !outgoing && !support.historyLoading && (
           <EmptyState title="Seu atendimento começa aqui">
             <p>
               Consulte um pedido, conheça seus produtos ou solicite um
@@ -227,28 +229,29 @@ export function Chat({
             ))}
           </div>
         ))}
-        {support.sending && (
+        {outgoing && !history?.turns.some(turn => turn.clientMessageId === outgoing.clientMessageId) && (
           <>
             <div className="message-row user">
               <div className="message-content">
                 <div className="bubble">
                   {displayMessage(
-                    support.sending.content,
+                    outgoing.content,
                     "USER",
                     support.orders,
                   )}
                 </div>
+                {!support.sending && <small className="muted">Envio aguardando confirmação</small>}
               </div>
             </div>
-            <div className="message-row assistant">
+            {support.sending && <div className="message-row assistant">
               <span className="message-avatar">
                 <Icon name="spark" size={13} />
               </span>
               <div className="processing" role="status">
                 <span className="typing">•••</span>
-                {support.busy}
+                {support.messageBusy || support.busy}
               </div>
-            </div>
+            </div>}
           </>
         )}
         <ConfirmationPanel support={support} />
@@ -260,6 +263,7 @@ export function Chat({
         )}
       </div>
       <div className="composer-area">
+        {support.messageError && <ErrorBanner message={support.messageError} />}
         {support.retry && (
           <div className="retry-notice" role="status">
             <p>
@@ -267,7 +271,7 @@ export function Chat({
               segurança usando a mesma identificação.
             </p>
             <button
-              disabled={!!support.busy}
+              disabled={!!support.busy || !!support.messageBusy}
               onClick={() => void support.retrySend()}
             >
               Tentar novamente
@@ -276,32 +280,35 @@ export function Chat({
         )}
         <div className="quick-actions">
           <button
-            disabled={!!support.busy || !!support.retry}
+            disabled={!!support.busy || !!support.messageBusy || !!support.retry}
             onClick={() => setDraft("Qual o status do pedido ")}
           >
             Onde está meu pedido?
           </button>
           <button
-            disabled={!!support.busy || !!support.retry}
+            disabled={!!support.busy || !!support.messageBusy || !!support.retry}
             onClick={() => setDraft("Quero cancelar o pedido ")}
           >
             Cancelar um pedido
           </button>
           <button
-            disabled={!!support.busy || !!support.retry}
+            disabled={!!support.busy || !!support.messageBusy || !!support.retry}
             onClick={() => void support.handoff()}
           >
             Falar com atendente
           </button>
         </div>
         <form className="composer" onSubmit={submit}>
+          <button type="button" className="mobile-handoff" aria-label="Solicitar atendimento humano simulado" disabled={!!support.busy || !!support.messageBusy || !!support.retry} onClick={() => void support.handoff()}>
+            <Icon name="headset" />
+          </button>
           <textarea
             aria-label="Sua mensagem"
             placeholder="Escreva sua mensagem…"
             rows={1}
             maxLength={2000}
             value={draft}
-            disabled={!!support.busy || !!support.retry}
+            disabled={!!support.busy || !!support.messageBusy || !!support.retry}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (
@@ -317,7 +324,7 @@ export function Chat({
           <button
             className="primary send"
             aria-label="Enviar mensagem"
-            disabled={!!support.busy || !!support.retry || !draft.trim()}
+            disabled={!!support.busy || !!support.messageBusy || !!support.retry || !draft.trim()}
           >
             <Icon name="arrow" />
           </button>

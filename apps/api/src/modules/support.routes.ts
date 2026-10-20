@@ -18,21 +18,28 @@ import { createHandoffRepository } from './handoffs/handoff.repository.js';
 import { createHandoffService } from './handoffs/handoff.service.js';
 import { createHandoffController } from './handoffs/handoff.controller.js';
 import { createHandoffRouter } from './handoffs/handoff.routes.js';
+import { createAuthRepository } from './auth/auth.repository.js';
+import { createAuthService } from './auth/auth.service.js';
+import { defaultAuthOptions, type AuthOptions } from './auth/auth.policy.js';
+import { createRecoveryRouter } from './auth/auth.routes.js';
 
 export interface SupportDependencies {
   database: PrismaClient;
   sessionPolicy: SessionPolicy;
   allowedOrigins: readonly string[];
   agent?: AgentDependencies;
+  auth?: AuthOptions;
 }
 
-export function createSupportRouter({ database, sessionPolicy, agent }: SupportDependencies) {
+export function createSupportRouter({ database, sessionPolicy, agent, auth = defaultAuthOptions }: SupportDependencies) {
   const router = Router();
   const sessions = createSessionService(createSessionRepository(database));
   const customers = createCustomerService(createCustomerRepository(database), sessionPolicy.ttlSeconds);
   const orders = createOrderService(createOrderRepository(database));
-  router.use('/customers', createCustomerRouter(customers, sessionPolicy));
-  router.use('/sessions', createSessionRouter(sessions, sessionPolicy));
+  const credentials = createAuthService(createAuthRepository(database), sessionPolicy.ttlSeconds, auth);
+  router.use('/customers', createCustomerRouter(customers, sessionPolicy, credentials));
+  router.use('/sessions', createSessionRouter(sessions, sessionPolicy, credentials));
+  router.use('/password-recovery', createRecoveryRouter(credentials, sessionPolicy, sessions));
   router.use('/orders', createOrderRouter(orders, sessions, sessionPolicy));
   const handoffs = createHandoffService({
     register: (customerId, reason, conversationId) => database.$transaction((tx) =>

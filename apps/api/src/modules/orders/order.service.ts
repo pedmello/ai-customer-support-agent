@@ -1,5 +1,6 @@
 import { AppError } from '../../errors/app-error.js';
 import type { OrderRecord, OrderRepository } from './order.repository.js';
+import { presentOrderItem } from './legacy-product.js';
 
 function orderView(order: OrderRecord) {
   return {
@@ -10,7 +11,7 @@ function orderView(order: OrderRecord) {
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     cancelledAt: order.cancelledAt,
-    items: order.items.map(({ productId, title, imageUrl, catalogVersion, description, category, quantity, unitPriceCents }) => ({ productId, title, imageUrl, catalogVersion, description, category, quantity, unitPriceCents })),
+    items: order.items.map(presentOrderItem),
     totalCents: order.items.reduce((total, item) => total + item.quantity * item.unitPriceCents, 0),
   };
 }

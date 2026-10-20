@@ -11,7 +11,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Chat } from "./Chat";
 import { Orders } from "./Orders";
 import { useSupport } from "../hooks/useSupport";
-import type { SupportApi } from "../services/api";
+import { ApiError, type SupportApi } from "../services/api";
 import type { History, Order } from "../types";
 
 const history: History = {
@@ -29,6 +29,7 @@ const history: History = {
 function clientWithHistory(value: History) {
   return {
     setCsrf: vi.fn(),
+    login: vi.fn(), requestRecovery: vi.fn(), resetPassword: vi.fn(),
     orderByNumber: vi.fn(),
     current: vi
       .fn()
@@ -59,6 +60,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe("Interações de confirmação e pedidos", () => {
+  it("mantém a mensagem visível quando o envio fica sem resultado confirmado", async () => {
+    const client = clientWithHistory({ ...history, state: "ACTIVE", pendingConfirmation: null });
+    client.send.mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR"));
+    render(<Harness client={client} />);
+    await screen.findByRole("heading", { name: /Conversa de/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Sua mensagem" }), { target: { value: "Consultar meu pedido" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar mensagem" }));
+    await screen.findByRole("button", { name: "Tentar novamente" });
+    expect(screen.getByText("Consultar meu pedido")).toBeTruthy();
+    expect(screen.getByText("Envio aguardando confirmação")).toBeTruthy();
+  });
   it("confirma por botão sem mostrar o identificador técnico e bloqueia duplo clique", async () => {
     vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(() => {});
     const client = clientWithHistory(history);

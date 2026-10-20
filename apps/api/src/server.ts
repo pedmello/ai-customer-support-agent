@@ -5,6 +5,7 @@ import { createDatabase } from './integrations/database/prisma.js';
 import { createHealthRepository } from './modules/health/health.repository.js';
 import { createIntentModel } from './integrations/ai/model.factory.js';
 import { createFakeStoreClient } from './integrations/fake-store/fake-store.client.js';
+import { createResendClient, unavailableEmail } from './integrations/email/email.client.js';
 
 const logger = createLogger(env.LOG_LEVEL);
 const database = createDatabase(env.DATABASE_URL);
@@ -15,6 +16,13 @@ const app = createApp({
     database,
     sessionPolicy: { ttlSeconds: env.SESSION_TTL_SECONDS, secure: new URL(env.API_PUBLIC_URL).protocol === 'https:' },
     allowedOrigins: [new URL(env.API_PUBLIC_URL).origin, env.WEB_ORIGIN],
+    auth: {
+      email: env.EMAIL_PROVIDER === 'resend' ? createResendClient({ apiKey: env.RESEND_API_KEY,
+        from: env.EMAIL_FROM, timeoutMs: env.EMAIL_TIMEOUT_MS, logger }) : unavailableEmail,
+      hmacSecret: env.PASSWORD_RESET_HMAC_SECRET || undefined,
+      emailTimeoutMs: env.EMAIL_TIMEOUT_MS, resetTtlSeconds: env.PASSWORD_RESET_TTL_SECONDS,
+      resetMaxAttempts: env.PASSWORD_RESET_MAX_ATTEMPTS, resetResendSeconds: env.PASSWORD_RESET_RESEND_SECONDS, logger,
+    },
     agent: {
       model: createIntentModel(env, logger),
       products: createFakeStoreClient({ timeoutMs: env.FAKE_STORE_TIMEOUT_MS, logger }),

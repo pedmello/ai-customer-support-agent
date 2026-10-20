@@ -21,6 +21,39 @@ function repository(existing: OrderRecord | null, updated: OrderRecord | null = 
 }
 
 describe('order rules', () => {
+  it('presents known legacy products with real catalog metadata without changing stored orders or USD amounts', async () => {
+    const existing = order('PROCESSING');
+    existing.items[0] = { ...existing.items[0]!, productId: 2, title: 'Item demonstrativo 2' };
+    const stored = structuredClone(existing);
+    const service = createOrderService(repository(existing));
+    const result = await service.getOwn(existing.customerId, existing.orderId);
+    expect(result.items[0]).toMatchObject({
+      productId: 2, title: 'Mens Casual Premium Slim Fit T-Shirts ',
+      imageUrl: 'https://fakestoreapi.com/img/71-3HjGNDUL._AC_SY879._SX._UX._SY._UY_t.png',
+      quantity: 2, unitPriceCents: 2500,
+    });
+    expect(result.currency).toBe('USD');
+    expect(result.totalCents).toBe(5000);
+    expect(existing).toEqual(stored);
+    const list = await service.listOwn(existing.customerId, 1, 100);
+    expect(list.data[0]!.items).toEqual(result.items);
+  });
+  it('keeps a specific historical product title and photo untouched', async () => {
+    const existing = order('PROCESSING');
+    existing.items[0] = { ...existing.items[0]!, productId: 2, title: 'Historical product', imageUrl: 'https://fakestoreapi.com/img/historical.png' };
+    const result = await createOrderService(repository(existing)).getOwn(existing.customerId, existing.orderId);
+    expect(result.items[0]!.title).toBe('Historical product');
+    expect(result.items[0]!.imageUrl).toBe(existing.items[0]!.imageUrl);
+  });
+  it.each([1, 3])('resolves legacy product %s without changing its product identity', async productId => {
+    const existing = order('SHIPPED');
+    existing.items[0] = { ...existing.items[0]!, productId, title: `Item demonstrativo ${productId}` };
+    const result = await createOrderService(repository(existing)).getOwn(existing.customerId, existing.orderId);
+    expect(result.items[0]!.productId).toBe(productId);
+    expect(result.items[0]!.title).not.toMatch(/^Item demonstrativo/);
+    expect(result.items[0]!.imageUrl).toMatch(/^https:\/\/fakestoreapi.com\/img\//);
+    expect(existing.items[0]!.imageUrl).toBeNull();
+  });
   it('does not reveal a missing or foreign order', async () => {
     const service = createOrderService(repository(null));
     await expect(service.getOwn(randomUUID(), randomUUID())).rejects.toMatchObject({ status: 404, code: 'ORDER_NOT_FOUND' });

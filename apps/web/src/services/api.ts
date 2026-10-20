@@ -10,10 +10,13 @@ import type {
 } from "../types";
 
 const errors: Record<string, string> = {
+  INVALID_CREDENTIALS: 'E-mail ou senha inválidos. Confira os dados ou recupere seu acesso.',
+  AUTH_RATE_LIMITED: 'Muitas tentativas. Aguarde antes de tentar novamente.',
+  PASSWORD_RESET_INVALID: 'Código inválido, expirado ou já utilizado. Confira o código ou solicite um novo.',
   EMAIL_ALREADY_REGISTERED:
-    "Este e-mail já está cadastrado. Use outro e-mail para criar uma demonstração. Informar um e-mail existente não recupera uma conta.",
+    "Este e-mail já está cadastrado. Entre com sua senha ou utilize a recuperação de acesso.",
   UNAUTHENTICATED:
-    "Sua sessão expirou. Inicie uma nova demonstração com outro e-mail.",
+    "Sua sessão expirou. Entre novamente para continuar.",
   CSRF_INVALID:
     "A proteção da sessão foi atualizada. Recarregue a página antes de tentar novamente.",
   VALIDATION_ERROR: "Confira os dados informados e tente novamente.",
@@ -101,11 +104,16 @@ export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
       csrf = token;
     },
     current: () => request<Session>("/sessions/current"),
-    register: (name: string, email: string) =>
+    register: (name: string, email: string, password: string, passwordConfirmation: string) =>
       request<Session>("/customers", "POST", {
         name: name.trim(),
         email: email.trim().toLowerCase(),
+        password, passwordConfirmation,
       }),
+    login: (email: string, password: string) => request<Session>('/sessions', 'POST', { email: email.trim().toLowerCase(), password }),
+    requestRecovery: (email: string) => request<{ message: string; resendAfterSeconds: number }>('/password-recovery/request', 'POST', { email: email.trim().toLowerCase() }),
+    resetPassword: (email: string, code: string, password: string, passwordConfirmation: string) =>
+      request<void>('/password-recovery/reset', 'POST', { email: email.trim().toLowerCase(), code, password, passwordConfirmation }),
     logout: () => request<void>("/sessions/current", "DELETE"),
     orders: () => all<Order>("/orders"),
     orderByNumber: async (number: number) => (await request<{ data: Order }>(`/orders/by-number/${number}`)).data,

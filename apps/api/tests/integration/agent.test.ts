@@ -1,3 +1,4 @@
+import { defaultAuthOptions } from '../../src/modules/auth/auth.policy.js';
 import { createHash, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -12,14 +13,14 @@ const database = createDatabase(testDatabaseUrl());
 const interpret = vi.fn<IntentModel['interpret']>();
 const getProduct = vi.fn<ProductClient['getProduct']>();
 const app = createApp({ checkDatabase: async () => { await database.$queryRaw`SELECT 1`; },
-  support: { database, sessionPolicy: defaultSessionPolicy, allowedOrigins: ['http://localhost:3000', 'http://localhost:5173'],
+  support: { auth: { ...defaultAuthOptions, registrationLimit: 1000 }, database, sessionPolicy: defaultSessionPolicy, allowedOrigins: ['http://localhost:3000', 'http://localhost:5173'],
     agent: { model: { interpret }, products: { getProduct }, confirmationTtlSeconds: 300 } } });
 const emails: string[] = [];
 type Customer = { cookie: string; csrf: string; id: string; orders: Array<{ orderId: string; orderNumber: number; status: string; currency: string; items: Array<{ productId: number; imageUrl: string; description: string; category: string; unitPriceCents: number }> }> };
 async function customer(): Promise<Customer> {
   const email = `agent-${randomUUID()}@example.test`;
   emails.push(email);
-  const response = await request(app).post('/customers').send({ name: 'Cliente agente', email });
+  const response = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Cliente agente', email });
   expect(response.status).toBe(201);
   const cookies = response.headers['set-cookie'] as unknown as string[];
   const cookie = cookies[0]!.split(';')[0]!;

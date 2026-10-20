@@ -1,8 +1,8 @@
 # AI Customer Support Agent
 
-Agente seguro de atendimento por mensagens de texto. **Etapas 1 a 4: infraestrutura, clientes, sessões, pedidos, agente OpenAI/Gemini, catálogo Fake Store, encaminhamento humano simulado e frontend React responsivo Support AI.** Não há verificação de e-mail, login com senha ou recuperação de contas.
+Agente seguro de atendimento por mensagens de texto. **Etapas 1 a 4 e Implementações 1 e 2: infraestrutura, clientes, sessões, pedidos públicos, agente OpenAI/Gemini, catálogo Fake Store, atendimento humano simulado e frontend React responsivo.** Inclui login por senha e recuperação por código de e-mail, com integração Resend configurável.
 
-O cadastro cria cliente, sessão e três pedidos em uma transação. **A identidade é demonstrativa e não comprova posse do e-mail.** E-mail duplicado não concede acesso à conta existente. O cancelamento REST direto exige identidade, CSRF, titularidade e estado permitido; representa uma operação autorizada pelo fluxo chamador. **O fluxo do agente acrescenta confirmação explícita persistida, expiração e uso único**, sem modificar esse contrato direto.
+O cadastro cria cliente, sessão e três pedidos em uma transação. **Os pedidos são demonstrativos e o cadastro não comprova posse do e-mail.** O login exige senha; recuperação exige código recebido no endereço cadastrado. E-mail duplicado não concede acesso à conta existente. O cancelamento REST direto exige identidade, CSRF, titularidade e estado permitido; representa uma operação autorizada pelo fluxo chamador. **O fluxo do agente acrescenta confirmação explícita persistida, expiração e uso único**, sem modificar esse contrato direto.
 
 ## Requisitos
 
@@ -81,7 +81,7 @@ Endereços padrão:
 - Swagger UI: <http://localhost:3000/docs/>
 - Contrato OpenAPI: <http://localhost:3000/openapi.json>
 
-O frontend Support AI implementa cadastro demonstrativo, atendimento por mensagens, conversas persistidas e consulta de pedidos. O cliente HTTP utiliza `credentials: 'include'` e CSRF em memória. Guia da interface: [Etapa 4](docs/stage-4.md) e [guia de estudo](docs/code-walkthrough-stage-4.md).
+O frontend Support AI implementa cadastro demonstrativo, atendimento por mensagens, conversas persistidas e consulta de pedidos. O cliente HTTP utiliza `credentials: 'include'` e CSRF em memória. O layout atual usa cabeçalho com abas, painéis desktop e cards expansíveis no mobile: [reformulação e validação](docs/frontend-layout.md), [guia dos componentes e navegação](docs/code-walkthrough-frontend-layout.md). A documentação original está em [Etapa 4](docs/stage-4.md) e [guia de estudo](docs/code-walkthrough-stage-4.md).
 
 ## Aplicação completa no Docker
 
@@ -181,23 +181,26 @@ O comando aplica migrations somente ao banco de testes e verifica o sufixo `_tes
 
 | Método | Endpoint | Regra principal |
 | --- | --- | --- |
-| POST | `/customers` | Nome/e-mail novos; cria sessão e três pedidos atomicamente |
+| POST | `/customers` | Nome, e-mail, senha e confirmação; cria sessão e três pedidos atomicamente |
+| POST | `/sessions` | Login por senha, sem criação de pedidos |
+| POST | `/password-recovery/request` | Solicita código por e-mail; resposta genérica |
+| POST | `/password-recovery/reset` | Consome código e redefine senha, revogando todas as sessões |
 | GET | `/sessions/current` | Retorna cliente, expiração e `csrfToken` da sessão |
 | DELETE | `/sessions/current` | Exige CSRF, revoga a sessão e remove cookie |
 | GET | `/orders?page=1&pageSize=20` | Lista somente pedidos do cliente autenticado |
 | GET | `/orders/{orderId}` | Consulta pedido próprio; inexistente/estrangeiro têm o mesmo 404 |
 | POST | `/orders/{orderId}/cancel` | Corpo `{}`, sessão e CSRF; somente PROCESSING |
 
-Os pedidos iniciais têm estados PROCESSING, SHIPPED e CANCELLED. Itens e valores são sintéticos em USD, com preços em centavos e IDs 1/2/3 associados ao catálogo demonstrativo Fake Store. SHIPPED e CANCELLED retornam 409 sem alterações; cancelamentos concorrentes produzem uma única transição. Nunca envie `customerId` para autorizar uma operação.
+Os pedidos iniciais têm estados PROCESSING, SHIPPED e CANCELLED. Novos pedidos usam o snapshot versionado Fake Store com preços demonstrativos oficiais em centavos de BRL. Pedidos históricos em USD mantêm seus valores e moeda. SHIPPED e CANCELLED retornam 409 sem alterações; cancelamentos concorrentes produzem uma única transição. Nunca envie `customerId` para autorizar uma operação.
 
 ### Swagger e Postman
 
 1. Abra <http://localhost:3000/docs/> ou configure o Postman para essa URL base.
-2. Execute `POST /customers` com `Content-Type: application/json` e `{"name":"Ana Silva","email":"ana-unica@example.test"}`. Use um e-mail inédito. A resposta 201 contém `csrfToken`; o cookie HttpOnly é guardado pelo navegador/cookie jar do Postman. Não é necessário autenticar manualmente com e-mail ou customerId.
+2. Execute `POST /customers` com `Content-Type: application/json` e `{"name":"Ana Silva","email":"ana-unica@example.test","password":"Exemplo-longo-123!","passwordConfirmation":"Exemplo-longo-123!"}`. Use um e-mail inédito. A resposta 201 contém `csrfToken`; o cookie HttpOnly é guardado pelo navegador/cookie jar do Postman. Para retornar à mesma conta, utilize `POST /sessions` com e-mail e senha.
 3. No Swagger, clique **Authorize** e preencha somente `csrfToken`. Deixe os campos de cookie vazios: o navegador envia o cookie emitido pelo servidor. No Postman, mantenha o cookie jar ativo e envie `X-CSRF-Token: <valor retornado>` nas mutações.
 4. Consulte `/sessions/current` para obter novamente o CSRF e a identidade atual; consulte `/orders` e copie um `orderId` do resultado.
 5. Execute `POST /orders/{orderId}/cancel` com corpo JSON `{}` e o header CSRF. Um PROCESSING retorna 200; SHIPPED ou CANCELLED retornam 409.
-6. Execute `DELETE /sessions/current` com CSRF para revogar. O token antigo passa a retornar 401. Não há reentrada ou recuperação da conta nesta etapa.
+6. Execute `DELETE /sessions/current` com CSRF para revogar. O token antigo passa a retornar 401. Entre novamente com `POST /sessions` ou utilize a recuperação por código após configurar o Resend.
 
 Use sempre o mesmo hostname (`localhost`, por exemplo), sem alternar para `127.0.0.1`, e não misture HTTP/HTTPS. Quando `API_PUBLIC_URL` usa HTTPS, o cookie é Secure e o teste também deve usar HTTPS. CORS aceita somente a origem pública da API e `WEB_ORIGIN`; Postman/curl sem Origin continuam compatíveis, mas não dispensam cookie ou CSRF.
 
@@ -207,13 +210,13 @@ Exemplo do contrato utilizado pelo frontend local:
 const response = await fetch('http://localhost:3000/customers', {
   method: 'POST', credentials: 'include',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ name: 'Ana Silva', email: 'ana-unica@example.test' }),
+  body: JSON.stringify({ name: 'Ana Silva', email: 'ana-unica@example.test', password: 'Exemplo-longo-123!', passwordConfirmation: 'Exemplo-longo-123!' }),
 });
 const { csrfToken } = await response.json();
 // Em cancelamento/logout: credentials: 'include' e header 'X-CSRF-Token': csrfToken.
 ```
 
-Para comparar isolamento entre clientes, use dois cookie jars/perfis separados. Um cadastro bem-sucedido em um navegador que já tem sessão substitui seu cookie pelo do novo cliente; não há seleção de contas ou recuperação da sessão anterior. A revogação é explícita pelo endpoint de saída.
+Para comparar isolamento entre clientes, use dois cookie jars/perfis separados. Cadastro e login substituem o cookie atual. O logout revoga a sessão atual; a redefinição de senha revoga todas as sessões da conta. Contas anteriores sem senha podem ser ativadas por recuperação com comprovação de acesso ao e-mail; nenhum dado anterior é apagado.
 
 No DBeaver, atualize `support_agent → Schemas → public → Tables` após aplicar a migration. As tabelas são `customers`, `sessions`, `orders`, `order_items` e `_prisma_migrations`. Relacione `customer_id` e `order_id` para consultar os dados; `sessions` contém `token_hash`, `expires_at` e `revoked_at`, nunca o token bruto. O banco `support_agent_test` é separado e seus registros de teste são limpos ao concluir a suíte. Cadastre um cliente via Swagger/Postman para criar dados que permanecerão visíveis no DBeaver.
 
@@ -315,7 +318,17 @@ No DBeaver, mantenha `localhost:5434`, banco `support_agent`, usuário/senha con
 
 Pedidos agora têm `orderNumber` único e legível; a UI e o agente usam `#10000` em vez de UUIDs. Consulte um pedido próprio com `GET /orders/by-number/{orderNumber}`; as rotas por UUID permanecem para compatibilidade. Novos cadastros recebem três produtos distintos do catálogo local versionado da Fake Store, com fotografias externas e preços demonstrativos oficiais em BRL. Pedidos antigos em USD não são convertidos. Consultas/cancelamentos não dependem do catálogo HTTP estar disponível.
 
-A versão atual substitui a mochila Fjallraven pelo HD externo WD 2TB, ID 9. IDs externos e metadados ficam no snapshot local; a integração HTTP real continua como complemento. A UI tem fallback de imagem, cópia do número e o mesmo fluxo seguro de confirmação. Cadastro com senha/login/recuperação ficam para a Implementação 2.
+A versão atual substitui a mochila Fjallraven pelo HD externo WD 2TB, ID 9. IDs externos e metadados ficam no snapshot local; a integração HTTP real continua como complemento. A UI tem fallback de imagem, cópia do número e o mesmo fluxo seguro de confirmação.
+
+## Autenticação por senha e recuperação (Implementação 2)
+
+Consulte [o relatório e a configuração do Resend](docs/improvement-2.md) e [o guia de estudo do código](docs/code-walkthrough-improvement-2.md).
+
+Cadastro exige senha e confirmação (12–128 caracteres, sem alteração de conteúdo). O login restaura os mesmos pedidos e conversas. Senhas usam Argon2id; sessões usam apenas cookies HttpOnly e CSRF em memória. Cadastro não verifica o e-mail. Recuperação bem-sucedida comprova o acesso ao endereço naquele momento.
+
+O `.env` na raiz é carregado pelo backend e pelo Compose. Por padrão `EMAIL_PROVIDER=disabled`: cadastro e login funcionam, mas nenhum e-mail é enviado. Para habilitar, configure `EMAIL_PROVIDER=resend`, `EMAIL_FROM` (endereço de domínio verificado), `RESEND_API_KEY` e um `PASSWORD_RESET_HMAC_SECRET` aleatório exclusivo de pelo menos 32 caracteres. Não use prefixo `VITE_`. Recrie a API com `docker compose up --build -d --wait api web` depois de alterar variáveis.
+
+As configurações padrão são `EMAIL_TIMEOUT_MS=3000`, `PASSWORD_RESET_TTL_SECONDS=600`, `PASSWORD_RESET_MAX_ATTEMPTS=5` e `PASSWORD_RESET_RESEND_SECONDS=60`. Nenhum endpoint retorna códigos; use o e-mail recebido. Testes automatizados injetam um serviço simulado e utilizam PostgreSQL separado. A migration incremental `202610210001_password_authentication` preserva contas, pedidos, históricos e sessões existentes; sessões de contas legadas sem senha deixam de autorizar acesso até a ativação por recuperação.
 
 Documentação: [entrega e validação](docs/improvement-1.md), [guia didático do código](docs/code-walkthrough-improvement-1.md) e [views/consultas no DBeaver](docs/database-readability.md).
 

@@ -15,7 +15,7 @@ export function Navigation({
   busy: boolean;
 }) {
   return (
-    <aside className="sidebar">
+    <header className="app-header">
       <Brand />
       <div className="profile">
         <span className="avatar">
@@ -43,7 +43,6 @@ export function Navigation({
             key={item.id}
             className={section === item.id ? "active" : ""}
             aria-current={section === item.id ? "page" : undefined}
-            disabled={busy}
             onClick={() => onNavigate(item.id)}
           >
             <Icon name={item.icon} />
@@ -51,10 +50,9 @@ export function Navigation({
           </button>
         ))}
       </nav>
-      <button className="logout" onClick={onLogout} disabled={busy}>
+      <button className="logout" aria-label="Sair" title="Sair" onClick={onLogout} disabled={busy}>
         <Icon name="logout" />
-        Sair
       </button>
-    </aside>
+    </header>
   );
 }

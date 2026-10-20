@@ -1,10 +1,9 @@
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import { AppError } from '../../errors/app-error.js';
-import type { RegisterCustomerInput } from './customer.schemas.js';
 
 export function createCustomerRepository(database: PrismaClient) {
   return {
-    async register(input: RegisterCustomerInput, session: { tokenHash: string; expiresAt: Date },
+    async register(input: { name: string; email: string; passwordHash: string; passwordChangedAt: Date }, session: { tokenHash: string; expiresAt: Date },
       orders: Prisma.OrderCreateWithoutCustomerInput[]) {
       try {
         // Nested write: cliente, sessão, pedidos e itens fazem parte da mesma transação.

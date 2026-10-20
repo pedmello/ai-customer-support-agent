@@ -1,8 +1,12 @@
 ﻿import { useState } from "react";
 import { useSupport } from "./hooks/useSupport";
-import { Registration } from "./components/Registration";
+import { Authentication } from "./components/Authentication";
 import { Navigation, type Section } from "./components/Navigation";
-import { ContextPanel, ConversationsPage } from "./components/Conversations";
+import {
+  ContextPanel,
+  ConversationsPage,
+  OrderRail,
+} from "./components/Conversations";
 import { Orders } from "./components/Orders";
 import { Chat } from "./components/Chat";
 import { Brand, ErrorBanner, Icon } from "./components/ui";
@@ -11,6 +15,7 @@ export function App() {
   const support = useSupport();
   const [section, setSection] = useState<Section>("chat");
   const [orderId, setOrderId] = useState<string>();
+  const [conversationOpen, setConversationOpen] = useState(false);
   function openOrder(id: string) {
     setOrderId(id || undefined);
     setSection("orders");
@@ -35,11 +40,16 @@ export function App() {
     );
   if (!support.session)
     return (
-      <Registration
+      <Authentication
         busy={!!support.busy}
         error={support.error}
-        onSubmit={async (name, email) => {
-          await support.register(name, email);
+        dismissError={support.dismissError}
+        onLogin={async (email, password) => {
+          await support.login(email, password);
+          setSection('chat');
+        }}
+        onRegister={async (name, email, password, confirmation) => {
+          await support.register(name, email, password, confirmation);
           setSection("chat");
         }}
       />
@@ -49,7 +59,10 @@ export function App() {
       <Navigation
         customer={support.session.customer}
         section={section}
-        onNavigate={setSection}
+        onNavigate={(next) => {
+          setSection(next);
+          setConversationOpen(false);
+        }}
         onLogout={() => void support.logout()}
         busy={!!support.busy}
       />
@@ -67,49 +80,49 @@ export function App() {
             </div>
           )}
         </div>
-        <div className="workspace-toolbar">
-          <span role="status">
-            {support.busy || "Ambiente demonstrativo · pedidos fictícios"}
-          </span>
-          <button
-            disabled={!!support.busy}
-            onClick={() => void support.refresh()}
-          >
-            <Icon name="refresh" size={13} />
-            Atualizar
-          </button>
-        </div>
-        <div className="workspace-content">
+        <div className={`workspace-content section-${section} ${conversationOpen ? "conversation-open" : ""}`}>
           {section === "chat" ? (
             <>
               <ContextPanel
                 support={support}
                 onAll={() => setSection("conversations")}
-                onOrder={openOrder}
               />
               <Chat support={support} onOrder={openOrder} />
+              <OrderRail support={support} onOrder={openOrder} />
             </>
           ) : section === "orders" ? (
             <Orders
               orders={support.orders}
               selectedId={orderId}
               onSelect={setOrderId}
-              busy={!!support.busy || !!support.retry}
+              busy={!!support.busy}
               onAsk={(id, cancel) => {
                 setSection("chat");
                 void support.askOrder(id, cancel);
               }}
             />
           ) : (
-            <ConversationsPage
-              support={support}
-              onSelect={async (id) => {
-                await support.select(id);
-                setSection("chat");
-              }}
-            />
+            <>
+              <ConversationsPage
+                support={support}
+                onSelect={async (id) => {
+                  await support.select(id);
+                  setConversationOpen(true);
+                }}
+              />
+              <div className="conversation-detail">
+                <button className="mobile-back" onClick={() => setConversationOpen(false)}>
+                  <Icon name="back" />Conversas
+                </button>
+                <Chat support={support} onOrder={openOrder} />
+              </div>
+            </>
           )}
         </div>
+        <footer className="workspace-footer">
+          <span role="status">{support.busy || "Ambiente demonstrativo · pedidos fictícios"}</span>
+          <button disabled={!!support.busy} onClick={() => void support.refresh()}><Icon name="refresh" size={12} />Atualizar</button>
+        </footer>
       </main>
     </div>
   );

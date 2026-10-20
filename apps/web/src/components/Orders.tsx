@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useCompactLayout } from "../hooks/useCompactLayout";
 import { ProductImage } from "./ProductImage";
 import { CopyOrderNumber } from "./CopyOrderNumber";
 import { publicOrderLabel } from "../services/order-presentation";
@@ -48,19 +49,18 @@ export function OrderDetails({
   busy,
   onAsk,
   onBack,
+  compact = false,
 }: {
   order: Order;
   busy: boolean;
   onAsk: (cancel: boolean) => void;
   onBack: () => void;
+  compact?: boolean;
 }) {
   return (
-    <section className="order-details" aria-label="Detalhes do pedido">
+    <section className={`order-details ${compact ? "compact-order-details" : ""}`} aria-label="Detalhes do pedido">
       <header className="order-heading">
-        <button className="mobile-back" onClick={onBack}>
-          <Icon name="back" />
-          Pedidos
-        </button>
+        {compact && <button className="collapse-order" onClick={onBack}>Recolher detalhes</button>}
         <div>
           <h1>
             Pedido {publicOrderLabel(order)} <Status status={order.status} />
@@ -191,9 +191,10 @@ export function Orders({
   onAsk: (orderNumber: number, cancel: boolean) => void;
   busy: boolean;
 }) {
+  const compact = useCompactLayout();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<OrderStatus | "ALL">("ALL");
-  const [showDetails, setShowDetails] = useState(!!selectedId);
+  const [showDetails, setShowDetails] = useState(true);
   const normalized = query.trim().toLocaleLowerCase("pt-BR");
   const filtered = orders.filter(
     (order) =>
@@ -205,9 +206,7 @@ export function Orders({
   const selected =
     orders.find((order) => order.orderId === selectedId) ?? filtered[0];
   return (
-    <div
-      className={`orders-page ${showDetails && selected ? "show-details" : ""}`}
-    >
+    <div className="orders-page">
       <section className="orders-list-panel">
         <header>
           <h1>Meus pedidos</h1>
@@ -238,15 +237,23 @@ export function Orders({
         </div>
         <div className="orders-list">
           {filtered.map((order) => (
-            <OrderSummary
-              key={order.orderId}
-              order={order}
-              active={order.orderId === selected?.orderId}
-              onClick={() => {
-                onSelect(order.orderId);
-                setShowDetails(true);
-              }}
-            />
+            <div key={order.orderId} className={`order-entry ${compact && showDetails && order.orderId === selected?.orderId ? "expanded" : ""}`}>
+              <OrderSummary
+                order={order}
+                active={order.orderId === selected?.orderId}
+                onClick={() => {
+                  onSelect(order.orderId);
+                  setShowDetails(order.orderId === selected?.orderId ? !showDetails : true);
+                }}
+              />
+              {compact && showDetails && order.orderId === selected?.orderId && (
+                <OrderDetails
+                  compact order={order} busy={busy}
+                  onAsk={cancel => onAsk(order.orderNumber, cancel)}
+                  onBack={() => setShowDetails(false)}
+                />
+              )}
+            </div>
           ))}
           {!filtered.length && (
             <EmptyState title="Nenhum pedido encontrado">
@@ -255,16 +262,16 @@ export function Orders({
           )}
         </div>
       </section>
-      {selected ? (
+      {!compact && selected ? (
         <OrderDetails
           order={selected}
           busy={busy}
           onAsk={(cancel) => onAsk(selected.orderNumber, cancel)}
           onBack={() => setShowDetails(false)}
         />
-      ) : (
+      ) : !compact ? (
         <EmptyState title="Seus pedidos aparecerão aqui" />
-      )}
+      ) : null}
     </div>
   );
 }

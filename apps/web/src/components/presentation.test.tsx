@@ -37,13 +37,13 @@ describe("Apresentação fiel aos dados oficiais", () => {
       safeCatalogImage("http://fakestoreapi.com/img/item.jpg"),
     ).toBeUndefined();
   });
-  it("explica o cadastro demonstrativo sem senha ou promessa de compras reais", () => {
+  it("explica o cadastro com senha sem promessa de compras reais", () => {
     const html = renderToStaticMarkup(
       <Registration busy={false} error="" onSubmit={async () => {}} />,
     );
-    expect(html).toContain("Não verificamos sua posse");
+    expect(html).toContain("O cadastro não verifica a posse");
     expect(html).toContain("pedidos fictícios");
-    expect(html).not.toContain('type="password"');
+    expect(html).toContain('type="password"');
   });
   it("mantém a moeda do pedido, sem converter para BRL", () => {
     expect(money(2500, "USD")).toContain("25,00");

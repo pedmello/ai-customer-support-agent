@@ -50,7 +50,7 @@ export const supportPaths = {
     },
     delete: {
       tags: ['Sessions'], operationId: 'revokeCurrentSession', summary: 'Revogar a sessão atual',
-      description: 'Exige X-CSRF-Token retornado no cadastro ou na consulta da sessão. Revoga no banco e remove o cookie. Não há login ou recuperação para reabrir a conta nesta etapa.',
+      description: 'Exige X-CSRF-Token retornado no cadastro, login ou consulta da sessão. Revoga no banco e remove o cookie. Para retornar, utilize POST /sessions com e-mail e senha.',
       security: mutationSecurity,
       responses: { '204': { description: 'Sessão revogada e cookie removido' }, ...protectedErrors },
     },
@@ -107,9 +107,11 @@ export const supportSchemas = {
     properties: { error: { type: 'object', required: ['code', 'message'], additionalProperties: false, properties: { code: { type: 'string' }, message: { type: 'string' } } } },
   },
   RegisterCustomer: {
-    type: 'object', required: ['name', 'email'], additionalProperties: false,
+    type: 'object', required: ['name', 'email', 'password', 'passwordConfirmation'], additionalProperties: false,
     properties: {
       name: { type: 'string', minLength: 1, maxLength: 120, example: 'Ana Silva' },
+      password: { type: 'string', minLength: 12, maxLength: 128, writeOnly: true, description: 'Sem trim ou normalização. Hash Argon2id; nunca retornada.' },
+      passwordConfirmation: { type: 'string', minLength: 12, maxLength: 128, writeOnly: true, description: 'Deve ser idêntica à senha.' },
       email: { type: 'string', format: 'email', maxLength: 254, example: 'ana@example.test', description: 'Normalizado com trim e lowercase; sem verificação de posse.' },
     },
   },

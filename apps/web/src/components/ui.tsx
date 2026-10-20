@@ -115,16 +115,6 @@ export function time(value: string) {
     minute: "2-digit",
   }).format(new Date(value));
 }
-export function shortId(id: string) {
-  return id.slice(0, 8);
-}
-export function ProductPlaceholder() {
-  return (
-    <span className="product-placeholder">
-      <Icon name="box" size={23} />
-    </span>
-  );
-}
 export function OrderSummary({
   order,
   onClick,
@@ -137,6 +127,8 @@ export function OrderSummary({
   return (
     <button
       className={`order-summary ${active ? "selected" : ""}`}
+      title={`Pedido ${publicOrderLabel(order)} · ${statusLabels[order.status]}`}
+      data-status={order.status}
       onClick={onClick}
     >
       <ProductImage

@@ -1,3 +1,4 @@
+import { defaultAuthOptions } from '../../src/modules/auth/auth.policy.js';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,7 @@ const database = createDatabase(testDatabaseUrl());
 const allowedOrigins = ['http://localhost:3000', 'http://localhost:5173'];
 const app = createApp({
   checkDatabase: async () => { await database.$queryRaw`SELECT 1`; },
-  support: { database, sessionPolicy: defaultSessionPolicy, allowedOrigins },
+  support: { auth: { ...defaultAuthOptions, registrationLimit: 1000 }, database, sessionPolicy: defaultSessionPolicy, allowedOrigins },
 });
 const emails = new Set<string>();
 function email() {
@@ -30,7 +31,7 @@ function cookieOf(response: request.Response) {
 }
 
 async function register() {
-  const response = await request(app).post('/customers').send({ name: 'Cliente de teste', email: email() });
+  const response = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Cliente de teste', email: email() });
   expect(response.status).toBe(201);
   return { cookie: cookieOf(response), csrf: response.body.csrfToken as string, customerId: response.body.customer.customerId as string, response };
 }
@@ -57,7 +58,7 @@ afterAll(async () => {
 describe('transactional registration', () => {
   it('persists a new customer, three consistent orders and only the session hash', async () => {
     const targetEmail = email();
-    const response = await request(app).post('/customers').send({ name: '  Ana Silva  ', email: ` ${targetEmail.toUpperCase()} ` });
+    const response = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: '  Ana Silva  ', email: ` ${targetEmail.toUpperCase()} ` });
     expect(response.status).toBe(201);
     expect(response.body.customer).toEqual({ customerId: expect.any(String), name: 'Ana Silva', email: targetEmail });
     expect(response.body.customer.customerId).toMatch(/^[a-f0-9-]{36}$/);
@@ -88,8 +89,8 @@ describe('transactional registration', () => {
 
   it('rejects a normalized duplicate without issuing a cookie or granting access', async () => {
     const targetEmail = email();
-    const first = await request(app).post('/customers').send({ name: 'Original', email: targetEmail });
-    const duplicate = await request(app).post('/customers').send({ name: 'Outra pessoa', email: ` ${targetEmail.toUpperCase()} ` });
+    const first = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Original', email: targetEmail });
+    const duplicate = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Outra pessoa', email: ` ${targetEmail.toUpperCase()} ` });
     expect(first.status).toBe(201);
     expect(duplicate.status).toBe(409);
     expect(duplicate.body).toEqual({ error: { code: 'EMAIL_ALREADY_REGISTERED', message: 'Email already registered' } });
@@ -102,7 +103,7 @@ describe('transactional registration', () => {
     const first = await register();
     const second = await register();
     const duplicate = await request(app).post('/customers').set('Cookie', second.cookie)
-      .send({ name: 'Impostor', email: first.response.body.customer.email });
+      .send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Impostor', email: first.response.body.customer.email });
     expect(duplicate.status).toBe(409);
     expect(duplicate.headers['set-cookie']).toBeUndefined();
     const current = await request(app).get('/sessions/current').set('Cookie', second.cookie);
@@ -112,8 +113,8 @@ describe('transactional registration', () => {
   it('handles simultaneous registration of the same normalized email', async () => {
     const targetEmail = email();
     const responses = await Promise.all([
-      request(app).post('/customers').send({ name: 'Primeiro', email: targetEmail }),
-      request(app).post('/customers').send({ name: 'Segundo', email: targetEmail.toUpperCase() }),
+      request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Primeiro', email: targetEmail }),
+      request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Segundo', email: targetEmail.toUpperCase() }),
     ]);
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
     const customer = await database.customer.findUniqueOrThrow({ where: { email: targetEmail }, include: { orders: true, sessions: true } });
@@ -127,7 +128,7 @@ describe('transactional registration', () => {
     const targetEmail = email();
     const before = await database.order.count();
     await expect(createCustomerRepository(database).register(
-      { name: 'Rollback', email: targetEmail },
+      { name: 'Rollback', email: targetEmail, passwordHash: 'test-only-rollback', passwordChangedAt: new Date() },
       { tokenHash: session.tokenHash, expiresAt: session.expiresAt }, demoOrders(new Date()),
     )).rejects.toBeDefined();
     expect(await database.customer.findUnique({ where: { email: targetEmail } })).toBeNull();
@@ -139,7 +140,7 @@ describe('transactional registration', () => {
     { name: 'Nome', email: 'invalid' },
     { name: 'Nome', email: 'valid@example.test', customerId: randomUUID() },
   ])('returns a standard validation error for invalid input', async (input) => {
-    const response = await request(app).post('/customers').send(input);
+    const response = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', ...input });
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ error: { code: 'VALIDATION_ERROR', message: 'Invalid request data' } });
     expect(response.headers['set-cookie']).toBeUndefined();
@@ -147,9 +148,9 @@ describe('transactional registration', () => {
 
   it('sets a host-prefixed Secure cookie for the configured HTTPS environment', async () => {
     const secureApp = createApp({ checkDatabase: async () => {}, support: {
-      database, sessionPolicy: { ...defaultSessionPolicy, secure: true }, allowedOrigins: ['https://example.test'],
+      database, auth: { ...defaultAuthOptions, registrationLimit: 1000 }, sessionPolicy: { ...defaultSessionPolicy, secure: true }, allowedOrigins: ['https://example.test'],
     } });
-    const response = await request(secureApp).post('/customers').send({ name: 'HTTPS', email: email() });
+    const response = await request(secureApp).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'HTTPS', email: email() });
     expect(response.status).toBe(201);
     expect(response.headers['set-cookie']?.[0]).toMatch(/^__Host-support_session=/);
     expect(response.headers['set-cookie']?.[0]).toContain('Secure');
@@ -202,7 +203,7 @@ describe('sessions, browser security and Postman compatibility', () => {
     expect(preflight.headers['access-control-allow-origin']).toBe('http://localhost:5173');
     expect(preflight.headers['access-control-allow-credentials']).toBe('true');
     expect(preflight.headers['access-control-allow-headers']).toContain('X-CSRF-Token');
-    const response = await request(app).post('/customers').set('Origin', 'http://localhost:5173').send({ name: 'Web', email: email() });
+    const response = await request(app).post('/customers').set('Origin', 'http://localhost:5173').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Web', email: email() });
     expect(response.status).toBe(201);
     expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173');
   });
@@ -210,7 +211,7 @@ describe('sessions, browser security and Postman compatibility', () => {
   it.each(['https://attacker.example', 'null', 'http://localhost:5173.attacker.example'])
     ('blocks untrusted origins before creating a customer or exposing CSRF', async (origin) => {
       const targetEmail = email();
-      const response = await request(app).post('/customers').set('Origin', origin).send({ name: 'CSRF', email: targetEmail });
+      const response = await request(app).post('/customers').set('Origin', origin).send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'CSRF', email: targetEmail });
       expect(response.status).toBe(403);
       expect(response.body.error.code).toBe('ORIGIN_NOT_ALLOWED');
       expect(response.headers['access-control-allow-origin']).toBeUndefined();
@@ -221,10 +222,10 @@ describe('sessions, browser security and Postman compatibility', () => {
     });
 
   it('blocks simple form registration and cross-site fetch metadata', async () => {
-    const form = await request(app).post('/customers').type('form').send({ name: 'Form', email: email() });
+    const form = await request(app).post('/customers').type('form').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Form', email: email() });
     expect(form.status).toBe(415);
     expect(form.body.error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
-    const crossSite = await request(app).post('/customers').set('Sec-Fetch-Site', 'cross-site').send({ name: 'Form', email: email() });
+    const crossSite = await request(app).post('/customers').set('Sec-Fetch-Site', 'cross-site').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Form', email: email() });
     expect(crossSite.status).toBe(403);
   });
 
@@ -336,7 +337,7 @@ describe('technical errors', () => {
   it('does not issue a session or expose driver details on registration failure', async () => {
     const targetEmail = email();
     vi.spyOn(database.customer, 'create').mockRejectedValueOnce(new Error('private password=secret stack database details'));
-    const response = await request(app).post('/customers').send({ name: 'Failure', email: targetEmail });
+    const response = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: 'Failure', email: targetEmail });
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
     expect(response.headers['set-cookie']).toBeUndefined();

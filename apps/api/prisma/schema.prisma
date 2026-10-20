@@ -19,6 +19,11 @@ model Customer {
   customerId String    @id @default(uuid()) @map("customer_id") @db.Uuid
   name       String    @db.VarChar(120)
   email      String    @unique @db.VarChar(254)
+  passwordHash String? @map("password_hash") @db.VarChar(255)
+  passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz(3)
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
+  credentialVersion Int @default(0) @map("credential_version")
+  passwordResetChallenges PasswordResetChallenge[]
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   sessions   Session[]
   orders     Order[]
@@ -32,6 +37,7 @@ model Session {
   sessionId  String    @id @default(uuid()) @map("session_id") @db.Uuid
   customerId String    @map("customer_id") @db.Uuid
   tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  credentialVersion Int @default(0) @map("credential_version")
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
   revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
@@ -40,6 +46,29 @@ model Session {
   @@index([customerId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+model PasswordResetChallenge {
+  challengeId String @id @default(uuid()) @map("challenge_id") @db.Uuid
+  customerId String @map("customer_id") @db.Uuid
+  verifier String @db.Char(64)
+  attempts Int @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  customer Customer @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@index([expiresAt])
+  @@map("password_reset_challenges")
+}
+
+model AuthRateLimit {
+  key String @id @db.Char(64)
+  count Int @default(1)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  @@index([expiresAt])
+  @@map("auth_rate_limits")
 }
 
 model Order {

@@ -1,108 +1,131 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Brand, ErrorBanner, Icon } from "./ui";
+import { ErrorBanner } from "./ui";
+import { AuthLayout } from "./AuthLayout";
+import { PasswordField } from "./PasswordField";
 
 export function Registration({
   busy,
   error,
   onSubmit,
+  onLogin,
 }: {
   busy: boolean;
   error: string;
-  onSubmit: (name: string, email: string) => Promise<unknown>;
+  onSubmit: (
+    name: string,
+    email: string,
+    password: string,
+    passwordConfirmation: string,
+  ) => Promise<unknown>;
+  onLogin?: () => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [validation, setValidation] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const locked = useRef(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (name.trim()) await onSubmit(name, email);
+    if (locked.current || busy) return;
+    setValidation("");
+    if (password !== confirmation) {
+      setValidation("As senhas precisam ser iguais.");
+      return;
+    }
+    if (password.length < 12 || password.length > 128 || !name.trim()) {
+      setValidation("Confira os campos e a política de senha.");
+      return;
+    }
+    locked.current = true;
+    setSubmitting(true);
+    try {
+      await onSubmit(name, email, password, confirmation);
+    } finally {
+      locked.current = false;
+      setSubmitting(false);
+      setPassword("");
+      setConfirmation("");
+    }
   }
+  const disabled = busy || submitting;
   return (
-    <main className="registration">
-      <section className="welcome">
-        <Brand />
-        <div className="welcome-content">
-          <h1>Atendimento para seus pedidos, a qualquer hora.</h1>
-          <div className="benefit">
-            <span>
-              <Icon name="box" />
-            </span>
-            <div>
-              <strong>Consulte seus pedidos</strong>
-              <p>Status e itens dos pedidos, direto na conversa.</p>
-            </div>
-          </div>
-          <div className="benefit">
-            <span>
-              <Icon name="shield" />
-            </span>
-            <div>
-              <strong>Cancelamentos com confirmação</strong>
-              <p>Nada é cancelado sem sua aprovação explícita.</p>
-            </div>
-          </div>
-          <div className="benefit">
-            <span>
-              <Icon name="headset" />
-            </span>
-            <div>
-              <strong>Atendimento humano quando precisar</strong>
-              <p>Explore o encaminhamento simulado a um atendente.</p>
-            </div>
-          </div>
-        </div>
-        <footer>
-          © {new Date().getFullYear()} Support AI · Ambiente demonstrativo
-        </footer>
-      </section>
-      <section className="registration-form">
-        <form onSubmit={submit}>
-          <h2>Vamos começar</h2>
-          <p className="muted intro">
-            Crie sua demonstração para consultar pedidos fictícios e falar com o
-            assistente.
-          </p>
-          <label htmlFor="name">Nome completo</label>
-          <input
-            id="name"
-            name="name"
-            autoComplete="name"
-            required
-            maxLength={120}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            disabled={busy}
-            pattern=".*\S.*"
-          />
-          <label htmlFor="email">E-mail</label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            maxLength={254}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            disabled={busy}
-            aria-describedby="demo-note"
-          />
-          <p id="demo-note" className="field-help">
-            O e-mail identifica este cadastro demonstrativo. Não verificamos sua
-            posse nem localizamos compras reais.
-          </p>
-          <button className="primary continue" disabled={busy || !name.trim()}>
-            {busy ? "Criando demonstração…" : "Continuar"}{" "}
-            <span aria-hidden="true">→</span>
-          </button>
-          <p className="demo-disclosure">
-            Você receberá três pedidos fictícios. Não envie dados sensíveis.
-            Esta demonstração não possui login por senha nem recuperação de
-            acesso.
-          </p>
-          {error && <ErrorBanner message={error} />}
-        </form>
-      </section>
-    </main>
+    <AuthLayout>
+      <form onSubmit={submit}>
+        <h2>Vamos começar</h2>
+        <p className="muted intro">
+          Crie sua conta para consultar pedidos fictícios e falar com o
+          assistente.
+        </p>
+        <label htmlFor="name">Nome completo</label>
+        <input
+          id="name"
+          name="name"
+          autoComplete="name"
+          required
+          maxLength={120}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          disabled={disabled}
+          pattern={String.raw`.*\S.*`}
+        />
+        <label htmlFor="email">E-mail</label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          maxLength={254}
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          disabled={disabled}
+          aria-describedby="demo-note"
+        />
+        <PasswordField
+          id="password"
+          label="Senha"
+          value={password}
+          onChange={setPassword}
+          disabled={disabled}
+        />
+        <p id="password-policy" className="field-help">
+          Use de 12 a 128 caracteres. Espaços fazem parte da senha.
+        </p>
+        <PasswordField
+          id="passwordConfirmation"
+          label="Confirmar senha"
+          value={confirmation}
+          onChange={setConfirmation}
+          disabled={disabled}
+        />
+        <p id="demo-note" className="field-help">
+          O cadastro não verifica a posse do e-mail nem localiza compras reais.
+          Use um endereço ao qual você tenha acesso para recuperar sua conta.
+        </p>
+        <button
+          className="primary continue"
+          disabled={disabled || !name.trim()}
+        >
+          {disabled ? "Criando conta…" : "Criar conta"}{" "}
+          <span aria-hidden="true">→</span>
+        </button>
+        <button
+          type="button"
+          className="auth-link"
+          disabled={disabled}
+          onClick={onLogin}
+        >
+          Já tenho uma conta
+        </button>
+        <p className="demo-disclosure">
+          Você receberá três pedidos fictícios. Não envie dados sensíveis no
+          atendimento.
+        </p>
+        {(validation || error) && <ErrorBanner message={validation || error} />}
+      </form>
+    </AuthLayout>
   );
 }

@@ -33,7 +33,7 @@ export function createApp({ checkDatabase, logger = createLogger('silent'), supp
     },
   }));
   app.use(helmet({ contentSecurityPolicy: { directives: { upgradeInsecureRequests: null } } }));
-  if (support) app.use(['/customers', '/sessions', '/orders', '/conversations', '/handoffs'], browserSecurity(support.allowedOrigins));
+  if (support) app.use(['/customers', '/sessions', '/orders', '/conversations', '/handoffs', '/password-recovery'], browserSecurity(support.allowedOrigins));
   app.use(express.json({ limit: '16kb' }));
   app.use(createHealthRouter(checkDatabase));
   if (support) app.use(createSupportRouter(support));

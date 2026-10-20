@@ -1,6 +1,6 @@
 # AI Customer Support Agent
 
-Agente seguro de atendimento por mensagens de texto. **Etapas 1 a 3: infraestrutura, clientes, sessões, pedidos, conversas persistidas, integração OpenAI, catálogo Fake Store e encaminhamento humano simulado.** A interface visual do chat não foi implementada. Não há verificação de e-mail, login com senha ou recuperação de contas.
+Agente seguro de atendimento por mensagens de texto. **Etapas 1 a 4: infraestrutura, clientes, sessões, pedidos, agente OpenAI/Gemini, catálogo Fake Store, encaminhamento humano simulado e frontend React responsivo Support AI.** Não há verificação de e-mail, login com senha ou recuperação de contas.
 
 O cadastro cria cliente, sessão e três pedidos em uma transação. **A identidade é demonstrativa e não comprova posse do e-mail.** E-mail duplicado não concede acesso à conta existente. O cancelamento REST direto exige identidade, CSRF, titularidade e estado permitido; representa uma operação autorizada pelo fluxo chamador. **O fluxo do agente acrescenta confirmação explícita persistida, expiração e uso único**, sem modificar esse contrato direto.
 
@@ -38,7 +38,7 @@ No WSL/bash, o equivalente à cópia é `cp .env.example .env`. Para instalaçõ
 | `POSTGRES_PASSWORD` | `change-me-local` | Senha fictícia para desenvolvimento; substitua no seu `.env` |
 | `DATABASE_URL` | Ver `.env.example` | Conexão da API/Prisma executados no host |
 | `TEST_DATABASE_URL` | Ver `.env.example` | Banco exclusivo terminado em `_test` para integração; nunca reutilize o banco da aplicação |
-| `VITE_API_URL` | `http://localhost:3000` | Endereço público da API usado pelos links do frontend |
+| `VITE_API_URL` | `http://localhost:3000` | Endereço público da API usado pelo cliente HTTP do frontend |
 | `AI_PROVIDER` | `gemini` no exemplo | Seleciona `gemini` ou `openai`; sem variável, mantém OpenAI para instalações existentes |
 | `GEMINI_API_KEY` | vazio | Chave Gemini exclusiva do backend; inserir somente no `.env` da raiz |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Modelo estável com JSON Schema; nível gratuito sujeito a cotas e elegibilidade |
@@ -81,7 +81,7 @@ Endereços padrão:
 - Swagger UI: <http://localhost:3000/docs/>
 - Contrato OpenAPI: <http://localhost:3000/openapi.json>
 
-O frontend inicial continua estático e contém links para documentação e healthcheck. Não representa disponibilidade em tempo real e não implementa o chat. A API está preparada para requisições JavaScript com cookies a partir de `WEB_ORIGIN`; o cliente deverá usar `credentials: 'include'`.
+O frontend Support AI implementa cadastro demonstrativo, atendimento por mensagens, conversas persistidas e consulta de pedidos. O cliente HTTP utiliza `credentials: 'include'` e CSRF em memória. Guia da interface: [Etapa 4](docs/stage-4.md) e [guia de estudo](docs/code-walkthrough-stage-4.md).
 
 ## Aplicação completa no Docker
 
@@ -201,7 +201,7 @@ Os pedidos iniciais têm estados PROCESSING, SHIPPED e CANCELLED. Itens e valore
 
 Use sempre o mesmo hostname (`localhost`, por exemplo), sem alternar para `127.0.0.1`, e não misture HTTP/HTTPS. Quando `API_PUBLIC_URL` usa HTTPS, o cookie é Secure e o teste também deve usar HTTPS. CORS aceita somente a origem pública da API e `WEB_ORIGIN`; Postman/curl sem Origin continuam compatíveis, mas não dispensam cookie ou CSRF.
 
-Exemplo para o frontend local, sem implementar interface:
+Exemplo do contrato utilizado pelo frontend local:
 
 ```typescript
 const response = await fetch('http://localhost:3000/customers', {
@@ -281,7 +281,7 @@ Detalhes históricos: [Etapa 1](docs/stage-1.md) e [Etapa 2](docs/stage-2.md). I
 
 ## Agente: Swagger e Postman
 
-O frontend continua sendo a página inicial. Use a API em <http://localhost:3000>, Swagger em <http://localhost:3000/docs/> e a mesma sessão/CSRF do cadastro.
+O frontend está em <http://localhost:5173>. A interface inicia cancelamentos exclusivamente pelo agente e seus botões de confirmação. Use a API em <http://localhost:3000>, Swagger em <http://localhost:3000/docs/> e a mesma sessão/CSRF do cadastro.
 
 | Método | Endpoint | Função |
 | --- | --- | --- |
@@ -310,3 +310,13 @@ Gere UUIDs no Postman com `{{$guid}}` (resolva e conserve o valor para retries) 
 Erros conversacionais tratados retornam HTTP 200 com `data.code` e histórico persistido. Validação, autenticação, CSRF, concorrência e falhas de persistência mantêm `{error:{code,message}}` e status HTTP apropriado. Não há chamada externa real nos testes automatizados. Execute `npm test`, `npm run test:integration`, `npm run typecheck` e `npm run build`; a integração usa somente PostgreSQL separado com mocks OpenAI/Fake Store.
 
 No DBeaver, mantenha `localhost:5434`, banco `support_agent`, usuário/senha configurados. Atualize o schema `public` para ver `conversations`, `conversation_turns`, `messages` e `human_handoffs`, além das tabelas anteriores. Os relacionamentos e consultas de estudo estão em [docs/stage-3.md](docs/stage-3.md).
+
+## Implementação 1 — Números públicos e catálogo Fake Store
+
+Pedidos agora têm `orderNumber` único e legível; a UI e o agente usam `#10000` em vez de UUIDs. Consulte um pedido próprio com `GET /orders/by-number/{orderNumber}`; as rotas por UUID permanecem para compatibilidade. Novos cadastros recebem três produtos distintos do catálogo local versionado da Fake Store, com fotografias externas e preços demonstrativos oficiais em BRL. Pedidos antigos em USD não são convertidos. Consultas/cancelamentos não dependem do catálogo HTTP estar disponível.
+
+A versão atual substitui a mochila Fjallraven pelo HD externo WD 2TB, ID 9. IDs externos e metadados ficam no snapshot local; a integração HTTP real continua como complemento. A UI tem fallback de imagem, cópia do número e o mesmo fluxo seguro de confirmação. Cadastro com senha/login/recuperação ficam para a Implementação 2.
+
+Documentação: [entrega e validação](docs/improvement-1.md), [guia didático do código](docs/code-walkthrough-improvement-1.md) e [views/consultas no DBeaver](docs/database-readability.md).
+
+Antes de executar uma versão atualizada sobre banco anterior, aplique as migrations incrementais com `npm run db:deploy` (ou o comando de deploy Docker já documentado). Não use reset. Na validação local desta entrega a migration já foi aplicada, com backup local ignorado pelo Git e conferência dos dados anteriores.

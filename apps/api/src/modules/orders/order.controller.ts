@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import { currentSession } from '../sessions/session.middleware.js';
-import { cancelOrderSchema, orderListSchema, orderParamsSchema } from './order.schemas.js';
+import { cancelOrderSchema, orderListSchema, orderParamsSchema, orderNumberParamsSchema } from './order.schemas.js';
 import type { createOrderService } from './order.service.js';
 
 export function createOrderController(service: ReturnType<typeof createOrderService>) {
@@ -17,5 +17,9 @@ export function createOrderController(service: ReturnType<typeof createOrderServ
     cancelOrderSchema.parse(req.body ?? {});
     res.json({ data: await service.cancel(currentSession(res).customerId, orderId) });
   };
-  return { list, get, cancel };
+  const getByNumber: RequestHandler = async (req, res) => {
+    const { orderNumber } = orderNumberParamsSchema.parse(req.params);
+    res.json({ data: await service.getOwnByNumber(currentSession(res).customerId, orderNumber) });
+  };
+  return { list, get, getByNumber, cancel };
 }

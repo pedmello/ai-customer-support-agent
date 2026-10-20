@@ -2,19 +2,19 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import { prepareSession } from '../sessions/session.service.js';
 import type { CustomerRepository } from './customer.repository.js';
 import type { RegisterCustomerInput } from './customer.schemas.js';
+import { DEMO_CATALOG_VERSION, selectDemoProducts } from './demo-catalog.js';
 
-export function demoOrders(now: Date): Prisma.OrderCreateWithoutCustomerInput[] {
+export function demoOrders(now: Date, random?: () => number): Prisma.OrderCreateWithoutCustomerInput[] {
+  const products = selectDemoProducts(random);
   return (['PROCESSING', 'SHIPPED', 'CANCELLED'] as const).map((status, index) => ({
     status,
-    currency: 'USD',
+    currency: 'BRL',
     createdAt: now,
     updatedAt: now,
     cancelledAt: status === 'CANCELLED' ? now : null,
     items: { create: [{
-      productId: index + 1,
-      title: `Item demonstrativo ${index + 1}`,
+      ...products[index]!, catalogVersion: DEMO_CATALOG_VERSION,
       quantity: 1,
-      unitPriceCents: [2500, 4000, 1500][index]!,
     }] },
   }));
 }

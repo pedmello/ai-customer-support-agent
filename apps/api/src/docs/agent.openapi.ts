@@ -37,8 +37,8 @@ export const agentPaths = {
       description: 'clientMessageId é um UUID novo por mensagem lógica. Ao repetir a mesma mensagem, reutilize-o: retorna o resultado original sem novas ações. Reutilizar com conteúdo diferente retorna 409. CONVERSATION_BUSY permite retry com a mesma chave. Para confirmar use content exatamente CONFIRMAR CANCELAMENTO e confirmationId retornado em data.conversation.pendingConfirmation. Para desistir use DESISTIR e o mesmo confirmationId. “Sim” e outras respostas ambíguas não cancelam. Identificador de confirmação expira e só vale nesta conversa. Erros conversacionais tratados e indisponibilidade da IA retornam HTTP 200 com data.code e resposta persistida; falhas técnicas/validação seguem error. O endpoint direto /orders/{orderId}/cancel continua autorizado por seu fluxo chamador e não exige esse desafio conversacional.',
       security: writeSecurity, parameters: [idParam],
       requestBody: { required: true, content: { 'application/json': { schema: ref('SendAgentMessage'), examples: {
-        query: { summary: 'Consultar pedido', value: { clientMessageId: 'e3f7f4f9-f004-468b-b39b-ff56a74d086e', content: 'Qual o status do pedido UUID_DO_PEDIDO?' } },
-        cancel: { summary: 'Solicitar cancelamento', value: { clientMessageId: 'cc38e1d2-70b9-43b0-a2da-775a24227068', content: 'Quero cancelar o pedido UUID_DO_PEDIDO' } },
+        query: { summary: 'Consultar pedido', value: { clientMessageId: 'e3f7f4f9-f004-468b-b39b-ff56a74d086e', content: 'Qual o status do pedido #48213?' } },
+        cancel: { summary: 'Solicitar cancelamento', value: { clientMessageId: 'cc38e1d2-70b9-43b0-a2da-775a24227068', content: 'Quero cancelar o pedido #48213' } },
         confirm: { summary: 'Confirmar usando o identificador recebido', value: { clientMessageId: 'c39d6a9e-bf51-4494-b4eb-f9e33f7f866b', content: 'CONFIRMAR CANCELAMENTO', confirmationId: '41d0bbe7-cf9e-4f53-99f1-1febbf22802f' } },
         decline: { summary: 'Desistir', value: { clientMessageId: '87ab7dad-c43d-4f0f-91ab-d912fd04fda4', content: 'DESISTIR', confirmationId: '41d0bbe7-cf9e-4f53-99f1-1febbf22802f' } },
       } } } },
@@ -56,7 +56,7 @@ const conversationProperties = {
   conversationId: uuid, state: { type: 'string', enum: ['ACTIVE', 'AWAITING_CONFIRMATION', 'HUMAN_REQUESTED'] },
   createdAt: date, updatedAt: date,
   pendingConfirmation: { type: 'object', nullable: true, required: ['confirmationId', 'orderId', 'expiresAt'],
-    properties: { confirmationId: uuid, orderId: uuid, expiresAt: date } },
+    properties: { confirmationId: uuid, orderId: uuid, orderNumber: { type: 'integer', nullable: true, minimum: 10000 }, expiresAt: date } },
 };
 export const agentSchemas = {
   Pagination: { type: 'object', required: ['page', 'pageSize', 'totalItems', 'totalPages'], properties: {

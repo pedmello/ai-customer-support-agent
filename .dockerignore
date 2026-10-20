@@ -8,3 +8,7 @@ apps/api/src/generated
 .env.*
 !.env.example
 *.log
+.temp
+.playwright-mcp
+docs/assets/stage-4
+*.dump

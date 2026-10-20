@@ -1,0 +1,334 @@
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import type { SupportState } from "../hooks/useSupport";
+import { conversationTitle } from "./Conversations";
+import { date, EmptyState, Icon, time } from "./ui";
+import { OrderCard } from "./Orders";
+import { ExternalProducts } from "./ExternalProducts";
+import { publicOrderText } from "../services/order-presentation";
+import type { Order } from "../types";
+
+// Adapt presentation only; the persisted server history and confirmation protocol stay unchanged.
+export function displayMessage(
+  content: string,
+  role: "USER" | "ASSISTANT" = "ASSISTANT",
+  orders: Order[] = [],
+) {
+  content = publicOrderText(content, orders);
+  if (role === "USER") {
+    if (content === "CONFIRMAR CANCELAMENTO") return "Confirmar cancelamento";
+    if (content === "DESISTIR") return "Manter pedido";
+    return content;
+  }
+  if (/confirmationId/.test(content)) {
+    if (content.includes("Deseja cancelar o pedido"))
+      return (
+        content.split("Envie CONFIRMAR")[0] +
+        " Use os botões de confirmação abaixo. Nenhum cancelamento foi executado."
+      );
+    return "Nenhuma alteração realizada. Use os botões da confirmação atual para confirmar ou manter o pedido.";
+  }
+  return content
+    .replace(/\bPROCESSING\b/g, "em processamento")
+    .replace(/\bSHIPPED\b/g, "enviado")
+    .replace(/\bCANCELLED\b/g, "cancelado");
+}
+function ConfirmationPanel({ support }: { support: SupportState }) {
+  const pending = support.history?.pendingConfirmation;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  if (!pending) return null;
+  const expired = new Date(pending.expiresAt).getTime() <= now;
+  return (
+    <section
+      className="confirmation card"
+      aria-label="Confirmação de cancelamento"
+    >
+      <strong>
+        {expired ? "Esta confirmação expirou" : "Deseja cancelar este pedido?"}
+      </strong>
+      <p>
+        Pedido #
+        {pending.orderNumber ??
+          support.orders.find((order) => order.orderId === pending.orderId)
+            ?.orderNumber ??
+          "selecionado"}
+      </p>
+      <p className="confirmation-warning">
+        {expired
+          ? "Solicite o cancelamento novamente pelo chat. Nenhuma alteração é feita apenas pela expiração."
+          : "Ao confirmar, verificaremos se o pedido ainda pode ser cancelado. O cancelamento exige sua aprovação explícita."}
+      </p>
+      {!expired && (
+        <>
+          <small>Válida até {time(pending.expiresAt)}</small>
+          <div>
+            <button
+              disabled={!!support.busy || !!support.retry}
+              onClick={() => void support.decide(false)}
+            >
+              Manter pedido
+            </button>
+            <button
+              className="danger"
+              disabled={!!support.busy || !!support.retry}
+              onClick={() => void support.decide(true)}
+            >
+              Cancelar pedido
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+export function Chat({
+  support,
+  onOrder,
+}: {
+  support: SupportState;
+  onOrder: (id: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const scroll = useRef<HTMLDivElement>(null);
+  const nearBottom = useRef(true);
+  const history = support.history;
+  useEffect(() => {
+    setDraft("");
+    nearBottom.current = true;
+    scroll.current?.scrollTo({ top: scroll.current.scrollHeight });
+  }, [support.selectedId]);
+  useEffect(() => {
+    if (nearBottom.current)
+      scroll.current?.scrollTo({
+        top: scroll.current.scrollHeight,
+        behavior: "smooth",
+      });
+  }, [history, support.sending, support.busy]);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.trim() || support.busy || support.retry) return;
+    const content = draft.trim();
+    setDraft("");
+    nearBottom.current = true;
+    await support.send(content);
+  }
+  return (
+    <section className="chat-panel">
+      <header className="chat-heading">
+        <span className="assistant-icon">
+          <Icon name="spark" />
+        </span>
+        <div>
+          <h1>
+            {history
+              ? conversationTitle(history, history, support.orders)
+              : "Como podemos ajudar?"}
+          </h1>
+          <small>
+            <span className="online-dot" />
+            Assistente Support AI · demonstração
+          </small>
+        </div>
+        <button
+          disabled={!!support.busy || !!support.retry}
+          onClick={() => void support.handoff()}
+        >
+          <Icon name="headset" size={15} />
+          <span>Falar com atendente</span>
+        </button>
+      </header>
+      <div
+        className="message-scroll"
+        ref={scroll}
+        onScroll={() => {
+          const node = scroll.current;
+          if (node)
+            nearBottom.current =
+              node.scrollHeight - node.scrollTop - node.clientHeight < 100;
+        }}
+        role="log"
+        aria-label="Histórico da conversa"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
+        {!history?.turns.length && !support.sending && (
+          <EmptyState title="Seu atendimento começa aqui">
+            <p>
+              Consulte um pedido, conheça seus produtos ou solicite um
+              cancelamento com confirmação.
+            </p>
+            <p className="fine-print">
+              Use a lista de pedidos para selecionar qual deseja consultar.
+            </p>
+          </EmptyState>
+        )}
+        {history?.turns.map((turn, index) => (
+          <div className="turn" key={turn.turnId}>
+            {(index === 0 ||
+              date(turn.createdAt) !==
+                date(history.turns[index - 1]!.createdAt)) && (
+              <div className="day-divider">{date(turn.createdAt)}</div>
+            )}
+            {turn.messages.map((message) => (
+              <div
+                className={`message-row ${message.role === "USER" ? "user" : "assistant"}`}
+                key={message.messageId}
+              >
+                {message.role === "ASSISTANT" && (
+                  <span className="message-avatar">
+                    <Icon name="spark" size={13} />
+                  </span>
+                )}
+                <div className="message-content">
+                  <div className="bubble">
+                    {displayMessage(
+                      message.content,
+                      message.role,
+                      support.orders,
+                    )}
+                  </div>
+                  {message.role === "ASSISTANT" &&
+                    support.outcomes[turn.clientMessageId]?.order && (
+                      <OrderCard
+                        order={{
+                          ...support.outcomes[turn.clientMessageId]!.order!,
+                          orderNumber:
+                            support.outcomes[turn.clientMessageId]!.order!
+                              .orderNumber ??
+                            support.orders.find(
+                              (order) =>
+                                order.orderId ===
+                                support.outcomes[turn.clientMessageId]!.order!
+                                  .orderId,
+                            )?.orderNumber!,
+                        }}
+                        onDetails={() =>
+                          onOrder(
+                            support.outcomes[turn.clientMessageId]!.order!
+                              .orderId,
+                          )
+                        }
+                      />
+                    )}
+                  {message.role === "ASSISTANT" && (
+                    <ExternalProducts
+                      products={
+                        support.outcomes[turn.clientMessageId]?.products ?? []
+                      }
+                    />
+                  )}
+                  <time>{time(message.createdAt)}</time>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+        {support.sending && (
+          <>
+            <div className="message-row user">
+              <div className="message-content">
+                <div className="bubble">
+                  {displayMessage(
+                    support.sending.content,
+                    "USER",
+                    support.orders,
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="message-row assistant">
+              <span className="message-avatar">
+                <Icon name="spark" size={13} />
+              </span>
+              <div className="processing" role="status">
+                <span className="typing">•••</span>
+                {support.busy}
+              </div>
+            </div>
+          </>
+        )}
+        <ConfirmationPanel support={support} />
+        {history?.state === "HUMAN_REQUESTED" && (
+          <div className="info-banner handoff-note">
+            Encaminhamento humano simulado registrado. Não há equipe conectada
+            nem contato agendado.
+          </div>
+        )}
+      </div>
+      <div className="composer-area">
+        {support.retry && (
+          <div className="retry-notice" role="status">
+            <p>
+              O resultado desta mensagem ainda não foi confirmado. Reenvie com
+              segurança usando a mesma identificação.
+            </p>
+            <button
+              disabled={!!support.busy}
+              onClick={() => void support.retrySend()}
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
+        <div className="quick-actions">
+          <button
+            disabled={!!support.busy || !!support.retry}
+            onClick={() => setDraft("Qual o status do pedido ")}
+          >
+            Onde está meu pedido?
+          </button>
+          <button
+            disabled={!!support.busy || !!support.retry}
+            onClick={() => setDraft("Quero cancelar o pedido ")}
+          >
+            Cancelar um pedido
+          </button>
+          <button
+            disabled={!!support.busy || !!support.retry}
+            onClick={() => void support.handoff()}
+          >
+            Falar com atendente
+          </button>
+        </div>
+        <form className="composer" onSubmit={submit}>
+          <textarea
+            aria-label="Sua mensagem"
+            placeholder="Escreva sua mensagem…"
+            rows={1}
+            maxLength={2000}
+            value={draft}
+            disabled={!!support.busy || !!support.retry}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                void submit(event);
+              }
+            }}
+          />
+          <button
+            className="primary send"
+            aria-label="Enviar mensagem"
+            disabled={!!support.busy || !!support.retry || !draft.trim()}
+          >
+            <Icon name="arrow" />
+          </button>
+        </form>
+        <div className="composer-note">
+          <span>
+            O assistente pode cometer erros. Não envie dados sensíveis.
+          </span>
+          <span>{draft.length}/2000</span>
+        </div>
+      </div>
+    </section>
+  );
+}

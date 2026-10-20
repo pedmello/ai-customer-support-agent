@@ -44,9 +44,10 @@ model Session {
 
 model Order {
   orderId     String      @id @default(uuid()) @map("order_id") @db.Uuid
+  orderNumber Int         @unique @default(autoincrement()) @map("order_number")
   customerId  String      @map("customer_id") @db.Uuid
   status      OrderStatus
-  currency    String      @default("USD") @db.Char(3)
+  currency    String      @default("BRL") @db.Char(3)
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
   cancelledAt DateTime?   @map("cancelled_at") @db.Timestamptz(3)
@@ -62,6 +63,10 @@ model OrderItem {
   orderId        String @map("order_id") @db.Uuid
   productId      Int    @map("product_id")
   title          String @db.VarChar(200)
+  imageUrl       String? @map("image_url") @db.VarChar(300)
+  catalogVersion String? @map("catalog_version") @db.VarChar(40)
+  description    String? @db.VarChar(3000)
+  category       String? @db.VarChar(120)
   quantity       Int
   unitPriceCents Int    @map("unit_price_cents")
   order          Order @relation(fields: [orderId], references: [orderId], onDelete: Cascade)

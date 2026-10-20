@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app.js';
@@ -15,7 +15,7 @@ const app = createApp({ checkDatabase: async () => { await database.$queryRaw`SE
   support: { database, sessionPolicy: defaultSessionPolicy, allowedOrigins: ['http://localhost:3000', 'http://localhost:5173'],
     agent: { model: { interpret }, products: { getProduct }, confirmationTtlSeconds: 300 } } });
 const emails: string[] = [];
-type Customer = { cookie: string; csrf: string; id: string; orders: Array<{ orderId: string; status: string }> };
+type Customer = { cookie: string; csrf: string; id: string; orders: Array<{ orderId: string; orderNumber: number; status: string; currency: string; items: Array<{ productId: number; imageUrl: string; description: string; category: string; unitPriceCents: number }> }> };
 async function customer(): Promise<Customer> {
   const email = `agent-${randomUUID()}@example.test`;
   emails.push(email);
@@ -38,7 +38,7 @@ function say(c: Customer, id: string, content: string, extra: { clientMessageId?
   return post(c, `/conversations/${id}/messages`, { clientMessageId: randomUUID(), content, ...extra });
 }
 function intent(value: AgentIntent['intent'], orderId: string | null = null) {
-  interpret.mockResolvedValue({ intent: value, orderId, opening: 'ACKNOWLEDGE' });
+  interpret.mockResolvedValue({ intent: value, orderId, orderNumber: null, opening: 'ACKNOWLEDGE' });
 }
 async function pending(c: Customer, id: string) {
   const orderId = c.orders.find((order) => order.status === 'PROCESSING')!.orderId;
@@ -244,7 +244,7 @@ describe('single-use conversational cancellation', () => {
     const sending = say(c, id, `Cancelar ${orderId}`).then((response) => response);
     await ready;
     expect((await post(c, '/handoffs', { reason: 'CUSTOMER_REQUEST', conversationId: id })).status).toBe(201);
-    resolveModel({ intent: 'REQUEST_CANCEL', orderId, opening: 'NONE' });
+    resolveModel({ intent: 'REQUEST_CANCEL', orderId, orderNumber: null, opening: 'NONE' });
     const response = await sending;
     expect(response.status).toBe(409); expect(response.body.error.code).toBe('CONVERSATION_BUSY');
     expect(await database.conversationTurn.count({ where: { conversationId: id } })).toBe(0);
@@ -309,5 +309,103 @@ describe('fallback and human handoffs', () => {
     expect(response.status).toBe(503); expect(response.body.error.code).toBe('HANDOFF_UNAVAILABLE');
     expect(JSON.stringify(response.body)).not.toContain('secret');
     expect(await database.conversationTurn.count({ where: { conversationId: id } })).toBe(0);
+  });
+});
+
+describe('public order numbers and resilient Fake Store snapshot', () => {
+  it('accepts a model-resolved pronoun only when its number matches the persisted own context', async () => {
+    const c=await customer(); const id=await conversation(c); const order=c.orders[0]!;
+    interpret.mockResolvedValue({intent:'ORDER_STATUS',orderId:null,orderNumber:order.orderNumber,opening:'NONE'});
+    expect((await say(c,id,`pedido #${order.orderNumber}`)).body.data.code).toBe('ORDER_STATUS');
+    const followup=await say(c,id,'E esse pedido?');
+    expect(followup.body.data.code).toBe('ORDER_STATUS');
+    expect(followup.body.data.order.orderId).toBe(order.orderId);
+    expect((await say(c,id,`O valor é R$ ${order.orderNumber},00?`)).body.data.order).toBeUndefined();
+    interpret.mockResolvedValue({intent:'ORDER_STATUS',orderId:null,orderNumber:c.orders[1]!.orderNumber,opening:'NONE'});
+    expect((await say(c,id,'E esse pedido?')).body.data.order).toBeUndefined();
+  });
+  it('generates distinct numbers concurrently and stores three independent BRL product snapshots per customer', async () => {
+    const clients = await Promise.all(Array.from({length:6}, () => customer()));
+    const numbers = clients.flatMap(c => c.orders.map(order => order.orderNumber));
+    expect(new Set(numbers).size).toBe(18);
+    expect(numbers.every(number => Number.isInteger(number) && number >= 10000)).toBe(true);
+    for (const c of clients) {
+      expect(new Set(c.orders.map(order => order.items[0]!.productId)).size).toBe(3);
+      for (const order of c.orders) {
+        expect(order.currency).toBe('BRL');
+        expect(order.items[0]!.imageUrl).toMatch(/^https:\/\/fakestoreapi.com\/img\//);
+        expect(order.items[0]!.description).toBeTruthy();
+        expect(order.items[0]!.category).toBeTruthy();
+        expect(order.items[0]!.unitPriceCents).toBeGreaterThan(0);
+      }
+    }
+    expect(getProduct).not.toHaveBeenCalled();
+  });
+  it('scopes public lookup by the authenticated owner, preserving UUID lookup', async () => {
+    const a = await customer(); const b = await customer(); const order = a.orders[0]!;
+    const own = await request(app).get(`/orders/by-number/${order.orderNumber}`).set('Cookie',a.cookie);
+    expect(own.status).toBe(200); expect(own.body.data.orderId).toBe(order.orderId);
+    const legacy = await request(app).get(`/orders/${order.orderId}`).set('Cookie',a.cookie);
+    expect(own.body).toEqual(legacy.body);
+    const foreign = await request(app).get(`/orders/by-number/${order.orderNumber}`).set('Cookie',b.cookie);
+    const missing = await request(app).get('/orders/by-number/2147483647').set('Cookie',b.cookie);
+    expect(foreign.status).toBe(404); expect(foreign.body).toEqual(missing.body);
+    for (const value of ['1','-2','1e5','48213.5','2147483648']) expect((await request(app).get(`/orders/by-number/${value}`).set('Cookie',a.cookie)).status).toBe(400);
+    expect((await request(app).get(`/orders/by-number/${order.orderNumber}`)).status).toBe(401);
+  });
+  it.each(['bare','hash','word'])('queries a public %s reference with natural facts and no exposed order UUID', async format => {
+    const c = await customer(); const id = await conversation(c); const order = c.orders[0]!;
+    interpret.mockResolvedValue({intent:'ORDER_STATUS',orderId:null,orderNumber:order.orderNumber,opening:'GREETING'});
+    const content = format === 'bare' ? String(order.orderNumber) : format === 'hash' ? `#${order.orderNumber}` : `Qual o status do pedido ${order.orderNumber}?`;
+    const response = await say(c,id,content);
+    expect(response.body.data.code).toBe('ORDER_STATUS');
+    expect(response.body.data.reply).toContain(`#${order.orderNumber}`);
+    expect(response.body.data.reply).toContain(response.body.data.order.items[0].title.trim());
+    expect(response.body.data.reply).not.toContain(order.orderId);
+  });
+  it('cannot authorize an invented, foreign or ambiguous number', async () => {
+    const c = await customer(); const other = await customer(); const id = await conversation(c); const order = c.orders[0]!;
+    interpret.mockResolvedValue({intent:'REQUEST_CANCEL',orderId:null,orderNumber:other.orders[0]!.orderNumber,opening:'NONE'});
+    const invented = await say(c,id,`Cancelar pedido ${order.orderNumber}`);
+    expect(invented.body.data.conversation.pendingConfirmation).toBeNull();
+    const foreign = await say(c,id,`Cancelar pedido ${other.orders[0]!.orderNumber}`);
+    expect(foreign.body.data.code).toBe('ORDER_NOT_FOUND');
+    interpret.mockResolvedValue({intent:'REQUEST_CANCEL',orderId:null,orderNumber:order.orderNumber,opening:'NONE'});
+    const ambiguous = await say(c,id,`Cancelar pedidos #${order.orderNumber} e #${c.orders[1]!.orderNumber}`);
+    expect(ambiguous.body.data.conversation.pendingConfirmation).toBeNull();
+  });
+  it('confirms cancellation by public number once, without another model inference', async () => {
+    const c = await customer(); const id = await conversation(c); const order = c.orders.find(o=>o.status==='PROCESSING')!;
+    interpret.mockResolvedValue({intent:'REQUEST_CANCEL',orderId:null,orderNumber:order.orderNumber,opening:'NONE'});
+    const start = await say(c,id,`Quero cancelar o pedido #${order.orderNumber}`);
+    expect(start.body.data.conversation.pendingConfirmation.orderNumber).toBe(order.orderNumber);
+    expect(await status(order.orderId)).toBe('PROCESSING');
+    const messageId = randomUUID(); const confirmationId = start.body.data.conversation.pendingConfirmation.confirmationId;
+    const confirmed = await say(c,id,'CONFIRMAR CANCELAMENTO',{confirmationId,clientMessageId:messageId});
+    expect(confirmed.body.data.code).toBe('ORDER_CANCELLED'); expect(confirmed.body.data.reply).toContain(`#${order.orderNumber}`);
+    expect(await status(order.orderId)).toBe('CANCELLED');
+    const repeated = await say(c,id,'CONFIRMAR CANCELAMENTO',{confirmationId,clientMessageId:messageId});
+    expect(repeated.body).toEqual(confirmed.body); expect(interpret).toHaveBeenCalledTimes(1);
+  });
+  it('keeps official snapshots available when real-client-shaped external results are unavailable', async () => {
+    const c = await customer(); const id = await conversation(c); const order = c.orders.find(o=>o.status==='PROCESSING')!;
+    interpret.mockResolvedValue({intent:'ORDER_PRODUCTS',orderId:null,orderNumber:order.orderNumber,opening:'NONE'});
+    getProduct.mockImplementation(async productId=>({productId,source:'FAKE_STORE',status:'UNAVAILABLE',code:'PRODUCT_TIMEOUT'}));
+    const response = await say(c,id,`Produtos do pedido #${order.orderNumber}`);
+    expect(getProduct).toHaveBeenCalledWith(order.items[0]!.productId);
+    expect(response.body.data.code).toBe('PRODUCTS_PARTIALLY_UNAVAILABLE');
+    expect(response.body.data.order.items[0].imageUrl).toBe(order.items[0]!.imageUrl);
+    expect(response.body.data.order.items[0].unitPriceCents).toBe(order.items[0]!.unitPriceCents);
+    interpret.mockResolvedValue({intent:'REQUEST_CANCEL',orderId:null,orderNumber:order.orderNumber,opening:'NONE'});
+    expect((await say(c,id,`Cancelar pedido #${order.orderNumber}`)).body.data.code).toBe('CONFIRMATION_REQUIRED');
+  });
+  it('replays historical JSON verbatim without rewriting hashes or text', async () => {
+    const c=await customer(); const id=await conversation(c); const clientMessageId=randomUUID(); const content=`Consultar ${c.orders[0]!.orderId}`;
+    const inputHash=createHash('sha256').update(JSON.stringify({content,confirmationId:null})).digest('hex');
+    const result={data:{clientMessageId,code:'ORDER_STATUS',reply:`Histórico ${c.orders[0]!.orderId}`,order:{orderId:c.orders[0]!.orderId,currency:'USD'}}};
+    const turn=await database.conversationTurn.create({data:{conversationId:id,clientMessageId,inputHash,result,messages:{create:[{role:'USER',content},{role:'ASSISTANT',content:result.data.reply}]}}});
+    const response=await say(c,id,content,{clientMessageId});
+    expect(response.body).toEqual(result); expect(interpret).not.toHaveBeenCalled();
+    expect(await database.conversationTurn.findUnique({where:{turnId:turn.turnId}})).toEqual(turn);
   });
 });

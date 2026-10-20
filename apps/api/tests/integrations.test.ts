@@ -16,14 +16,14 @@ afterEach(() => vi.resetAllMocks());
 describe('OpenAI SDK boundary (mocked)', () => {
   const model = () => createOpenAiModel({ apiKey: 'fake-test-key', model: 'configurable-test-model', timeoutMs: 1000, logger });
   it('uses structured intent, configured model, no server-side storage or tools', async () => {
-    const intent = { intent: 'ORDER_STATUS', orderId: null, opening: 'GREETING' };
+    const intent = { intent: 'ORDER_STATUS', orderId: null, orderNumber: null, opening: 'GREETING' };
     parse.mockResolvedValue({ status: 'completed', output_parsed: intent });
     expect(await model().interpret({ content: 'pedido', history: [] })).toEqual(intent);
     expect(parse.mock.calls[0]![0]).toMatchObject({ model: 'configurable-test-model', store: false, max_output_tokens: 300 });
     expect(parse.mock.calls[0]![0]).not.toHaveProperty('tools');
     expect(parse.mock.calls[0]![0].input[0].role).toBe('system');
   });
-  it.each([null, { intent: 'RUN_SQL', orderId: null, opening: 'NONE' }, { intent: 'HUMAN' }])('rejects missing/invalid structured output', async (output) => {
+  it.each([null, { intent: 'RUN_SQL', orderId: null, orderNumber: null, opening: 'NONE' }, { intent: 'HUMAN' }])('rejects missing/invalid structured output', async (output) => {
     parse.mockResolvedValue({ status: 'completed', output_parsed: output });
     await expect(model().interpret({ content: 'x', history: [] })).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
   });
@@ -40,7 +40,7 @@ describe('OpenAI SDK boundary (mocked)', () => {
     await expect(model().interpret({ content: 'x', history: [] })).rejects.toMatchObject({ code: 'AI_TIMEOUT' });
   });
   it('rejects incomplete responses even with a parseable body', async () => {
-    parse.mockResolvedValue({ status: 'incomplete', output_parsed: { intent: 'HUMAN', orderId: null, opening: 'NONE' } });
+    parse.mockResolvedValue({ status: 'incomplete', output_parsed: { intent: 'HUMAN', orderId: null, orderNumber: null, opening: 'NONE' } });
     await expect(model().interpret({ content: 'x', history: [] })).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
   });
 });

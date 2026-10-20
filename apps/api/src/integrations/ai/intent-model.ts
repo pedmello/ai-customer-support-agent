@@ -4,6 +4,7 @@ import { z } from 'zod';
 export const intentSchema = z.object({
   intent: z.enum(['ORDER_STATUS', 'ORDER_PRODUCTS', 'REQUEST_CANCEL', 'CONFIRM_CANCEL', 'DECLINE_CANCEL', 'HUMAN', 'OUT_OF_SCOPE', 'UNKNOWN']),
   orderId: z.string().nullable(),
+  orderNumber: z.number().int().min(10000).max(2147483647).nullable(),
   opening: z.enum(['GREETING', 'ACKNOWLEDGE', 'NONE']),
 }).strict();
 export type AgentIntent = z.infer<typeof intentSchema>;

@@ -6,7 +6,7 @@
 
 Na inspeção inicial deste checkout existia somente o adaptador OpenAI. Foram acrescentados o SDK oficial Google Gen AI, um adaptador Gemini e a seleção explícita de provedor. O contrato HTTP, os modelos Prisma, as migrations, o frontend, a autorização e as regras de cancelamento permanecem os mesmos.
 
-Arquivo local para inserir a chave: `C:\Users\Adm\Desktop\Teste\ai-customer-support-agent\.env`. Ele foi criado a partir de `.env.example`, com a chave vazia. Edite somente a linha `GEMINI_API_KEY=` no seu editor. Não envie a chave por mensagens, nem use comandos que imprimam o ambiente.
+Arquivo local para inserir a chave: `C:\Users\Adm\Desktop\Teste\ai-customer-support-agent\.env`. Ele foi criado a partir de `.env.example`, com a chave vazia.
 
 ```dotenv
 AI_PROVIDER=gemini
@@ -37,23 +37,23 @@ O [guia de saídas estruturadas](https://ai.google.dev/gemini-api/docs/generate-
 
 Leia nesta ordem, após o [guia do agente](code-walkthrough-stage-3.md):
 
-| Arquivo dentro do projeto | Responsabilidade e comunicação |
-| --- | --- |
-| `.env` / `.env.example` | Configuração local secreta e exemplo público sem chave. Não são código executável. |
-| `apps/api/src/config/env.ts` | Carrega o arquivo local e chama parseEnv. Usado por server.ts. |
-| `apps/api/src/config/env-schema.ts` | parseEnv valida AI_PROVIDER, modelos e timeouts com Zod. Erros exibem somente nomes dos campos. |
-| `apps/api/src/integrations/ai/intent-model.ts` | Define IntentModel.interpret, ModelInput, AgentIntent, intentSchema e AiFailure. É o contrato comum, sem SDK nem acesso ao banco. |
-| `apps/api/src/integrations/ai/model.factory.ts` | createIntentModel escolhe exatamente um adaptador conforme AI_PROVIDER. Recebe configuração e logger de server.ts. |
+| Arquivo dentro do projeto                           | Responsabilidade e comunicação                                                                                                                                    |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.env` / `.env.example`                             | Configuração local secreta e exemplo público sem chave. Não são código executável.                                                                                |
+| `apps/api/src/config/env.ts`                        | Carrega o arquivo local e chama parseEnv. Usado por server.ts.                                                                                                    |
+| `apps/api/src/config/env-schema.ts`                 | parseEnv valida AI_PROVIDER, modelos e timeouts com Zod. Erros exibem somente nomes dos campos.                                                                   |
+| `apps/api/src/integrations/ai/intent-model.ts`      | Define IntentModel.interpret, ModelInput, AgentIntent, intentSchema e AiFailure. É o contrato comum, sem SDK nem acesso ao banco.                                 |
+| `apps/api/src/integrations/ai/model.factory.ts`     | createIntentModel escolhe exatamente um adaptador conforme AI_PROVIDER. Recebe configuração e logger de server.ts.                                                |
 | `apps/api/src/integrations/gemini/gemini.client.ts` | createGeminiModel implementa interpret usando GoogleGenAI.models.generateContent. Converte falhas externas nos mesmos códigos internos já conhecidos pelo agente. |
-| `apps/api/src/integrations/openai/openai.client.ts` | createOpenAiModel continua usando Responses/Structured Outputs. Reexporta os tipos antigos para preservar imports existentes. |
-| `apps/api/src/integrations/openai/agent.prompt.ts` | AGENT_SYSTEM_PROMPT é compartilhado pelos dois adaptadores, sem alterações. O texto integral permanece documentado em stage-3.md. |
-| `apps/api/src/server.ts` | Monta a aplicação: chama a factory e injeta o modelo no agente, junto com os outros serviços. |
-| `apps/api/src/modules/agent/agent.orchestrator.ts` | send → plan → interpret → execute. Usa o contrato comum, não precisa conhecer SDKs. Mantém sessão, titularidade, estado e confirmação no backend. |
-| `apps/api/src/modules/agent/agent.safety.ts` | explicitDecision exige frase e desafio atuais; resolveOrderId impede IDs inventados; redactSensitive agora reconhece também o formato usual de chave Google. |
-| `apps/api/src/config/logger.ts` | createLogger remove GEMINI_API_KEY de campos estruturados, além dos segredos já protegidos. O adaptador não registra erros brutos do SDK. |
-| `compose.yaml` | Repassa somente ao backend a escolha de provedor e a chave. Volume e portas continuam iguais. |
-| `apps/api/tests/gemini.test.ts` | Respostas controladas do SDK, validação de JSON, bloqueios, falhas, seleção de provedor e ausência de chave. Não chama APIs externas. |
-| `apps/api/tests/agent-safety.test.ts` | Acrescenta verificação de remoção de chaves Google fictícias. |
+| `apps/api/src/integrations/openai/openai.client.ts` | createOpenAiModel continua usando Responses/Structured Outputs. Reexporta os tipos antigos para preservar imports existentes.                                     |
+| `apps/api/src/integrations/openai/agent.prompt.ts`  | AGENT_SYSTEM_PROMPT é compartilhado pelos dois adaptadores, sem alterações. O texto integral permanece documentado em stage-3.md.                                 |
+| `apps/api/src/server.ts`                            | Monta a aplicação: chama a factory e injeta o modelo no agente, junto com os outros serviços.                                                                     |
+| `apps/api/src/modules/agent/agent.orchestrator.ts`  | send → plan → interpret → execute. Usa o contrato comum, não precisa conhecer SDKs. Mantém sessão, titularidade, estado e confirmação no backend.                 |
+| `apps/api/src/modules/agent/agent.safety.ts`        | explicitDecision exige frase e desafio atuais; resolveOrderId impede IDs inventados; redactSensitive agora reconhece também o formato usual de chave Google.      |
+| `apps/api/src/config/logger.ts`                     | createLogger remove GEMINI_API_KEY de campos estruturados, além dos segredos já protegidos. O adaptador não registra erros brutos do SDK.                         |
+| `compose.yaml`                                      | Repassa somente ao backend a escolha de provedor e a chave. Volume e portas continuam iguais.                                                                     |
+| `apps/api/tests/gemini.test.ts`                     | Respostas controladas do SDK, validação de JSON, bloqueios, falhas, seleção de provedor e ausência de chave. Não chama APIs externas.                             |
+| `apps/api/tests/agent-safety.test.ts`               | Acrescenta verificação de remoção de chaves Google fictícias.                                                                                                     |
 
 ### Como ocorre uma chamada
 
@@ -165,13 +165,13 @@ No VS Code, use breakpoints na criação de controller/deadline, antes de genera
 
 Os testes novos foram executados antes da correção: cinco casos falharam reproduzindo classificação incorreta de 504 e ausência da repetição limitada. Após a correção:
 
-| Verificação | Resultado |
-| --- | --- |
-| gemini.test.ts, incluindo configuração | 31 testes passaram; 11 casos novos nesta revisão |
-| Suíte unitária completa | 90 testes passaram |
-| Integração Express/Supertest com PostgreSQL dedicado | 67 testes passaram |
-| Typecheck da API | passou |
-| Build da API dentro do Docker | passou |
+| Verificação                                          | Resultado                                        |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| gemini.test.ts, incluindo configuração               | 31 testes passaram; 11 casos novos nesta revisão |
+| Suíte unitária completa                              | 90 testes passaram                               |
+| Integração Express/Supertest com PostgreSQL dedicado | 67 testes passaram                               |
+| Typecheck da API                                     | passou                                           |
+| Build da API dentro do Docker                        | passou                                           |
 
 Novos casos cobrem classificação 504, logs sem segredos, recuperação de 502/503/504, máximo de duas tentativas, ausência de retry em 400/401/403/429 e JSON inválido, cancelamento no prazo e prazo total compartilhado. O teste de 504 persistente comprova o limite de duas chamadas e o erro final. Todas as falhas/repetições foram simuladas; não foram provocadas falhas reais nem gasto de cota para esse fim. A suíte de integração preserva cobertura de concorrência, uso único/expiração de confirmação, isolamento, idempotência, rollback e fallback. Total: **157 testes**, com APIs externas simuladas.
 
@@ -179,14 +179,14 @@ Novos casos cobrem classificação 504, logs sem segredos, recuperação de 502/
 
 Foram criados dois clientes com e-mails aleatórios exclusivos terminados em example.test. Cookie HttpOnly e X-CSRF-Token foram usados normalmente, sem imprimir valores. Nenhum dado pré-existente foi alterado. Foram enviadas exatamente cinco mensagens que exigem inferência; os logs da API mostram cinco eventos SUCCESS, todos attempt=1, sem retry.
 
-| Cenário | Resultado real | HTTP/API ms | Gemini ms |
-| --- | --- | ---: | ---: |
-| Consultar PROCESSING | ORDER_STATUS, titular e status corretos | 1260 | 1170 |
-| Solicitar cancelamento PROCESSING | CONFIRMATION_REQUIRED; pedido continuou PROCESSING no PostgreSQL | 967 | 926 |
-| Confirmar com frase e desafio vigentes | ORDER_CANCELLED; alteração persistida | 40 | sem chamada |
-| Consultar novamente após confirmar | ORDER_STATUS com CANCELLED, confirmado também no PostgreSQL | 1153 | 1107 |
-| Solicitar cancelamento SHIPPED | ORDER_NOT_CANCELLABLE; PostgreSQL continuou SHIPPED | 940 | 911 |
-| Mensagem fora do escopo | OUT_OF_SCOPE com encaminhamento humano simulated=true | 869 | 815 |
+| Cenário                                | Resultado real                                                   | HTTP/API ms |   Gemini ms |
+| -------------------------------------- | ---------------------------------------------------------------- | ----------: | ----------: |
+| Consultar PROCESSING                   | ORDER_STATUS, titular e status corretos                          |        1260 |        1170 |
+| Solicitar cancelamento PROCESSING      | CONFIRMATION_REQUIRED; pedido continuou PROCESSING no PostgreSQL |         967 |         926 |
+| Confirmar com frase e desafio vigentes | ORDER_CANCELLED; alteração persistida                            |          40 | sem chamada |
+| Consultar novamente após confirmar     | ORDER_STATUS com CANCELLED, confirmado também no PostgreSQL      |        1153 |        1107 |
+| Solicitar cancelamento SHIPPED         | ORDER_NOT_CANCELLABLE; PostgreSQL continuou SHIPPED              |         940 |         911 |
+| Mensagem fora do escopo                | OUT_OF_SCOPE com encaminhamento humano simulated=true            |         869 |         815 |
 
 Verificações adicionais reais, sem inferência:
 

@@ -10,6 +10,7 @@ export function createOrderRouter(service: ReturnType<typeof createOrderService>
   const controller = createOrderController(service);
   router.use(authenticate(sessions, policy));
   router.get('/', controller.list);
+  router.get('/by-number/:orderNumber', controller.getByNumber);
   router.get('/:orderId', controller.get);
   router.post('/:orderId/cancel', requireCsrf, requireJson, controller.cancel);
   return router;

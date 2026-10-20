@@ -5,14 +5,15 @@ import type { OrderRecord, OrderRepository } from '../src/modules/orders/order.r
 
 function order(status: OrderRecord['status']): OrderRecord {
   return {
-    orderId: randomUUID(), customerId: randomUUID(), status, currency: 'USD',
+    orderId: randomUUID(), orderNumber: 48213, customerId: randomUUID(), status, currency: 'USD',
     createdAt: new Date(), updatedAt: new Date(), cancelledAt: status === 'CANCELLED' ? new Date() : null,
-    items: [{ orderItemId: randomUUID(), orderId: randomUUID(), productId: 1, title: 'Demo', quantity: 2, unitPriceCents: 2500 }],
+    items: [{ orderItemId: randomUUID(), orderId: randomUUID(), productId: 1, title: 'Demo', imageUrl: null, catalogVersion: null, description: null, category: null, quantity: 2, unitPriceCents: 2500 }],
   };
 }
 
 function repository(existing: OrderRecord | null, updated: OrderRecord | null = null): OrderRepository {
   return {
+    findOwnByNumber: vi.fn().mockResolvedValue(existing),
     findOwn: vi.fn().mockResolvedValue(existing),
     cancelProcessing: vi.fn().mockResolvedValue(updated),
     listOwn: vi.fn().mockResolvedValue({ orders: existing ? [existing] : [], totalItems: existing ? 1 : 0 }),

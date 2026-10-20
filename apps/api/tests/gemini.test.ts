@@ -11,7 +11,7 @@ vi.mock('@google/genai', () => ({ GoogleGenAI: class {
 } }));
 const logger = createLogger('silent');
 const input = { content: 'Consultar pedido', history: [] };
-const intent = { intent: 'ORDER_STATUS', orderId: null, opening: 'NONE' };
+const intent = { intent: 'ORDER_STATUS', orderId: null, orderNumber: null, opening: 'NONE' };
 const model = () => createGeminiModel({ apiKey: 'fake-test-key', model: 'configured-model', timeoutMs: 1000, logger });
 afterEach(() => { vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers(); });
 

@@ -4,7 +4,7 @@ import { AppError } from '../../errors/app-error.js';
 export const conversationNotFound = () => new AppError(404, 'CONVERSATION_NOT_FOUND', 'Conversa não encontrada.');
 export const conversationBusy = () => new AppError(409, 'CONVERSATION_BUSY', 'Há uma mensagem em processamento. Tente novamente com o mesmo clientMessageId.');
 
-export function conversationView(conversation: Conversation) {
+export function conversationView(conversation: Conversation, orderNumber: number | null = null) {
   const active = conversation.confirmationExpiresAt && conversation.confirmationExpiresAt > new Date();
   return {
     conversationId: conversation.conversationId,
@@ -12,9 +12,17 @@ export function conversationView(conversation: Conversation) {
     createdAt: conversation.createdAt, updatedAt: conversation.updatedAt,
     pendingConfirmation: active && conversation.confirmationId ? {
       confirmationId: conversation.confirmationId, orderId: conversation.pendingOrderId,
+      orderNumber,
       expiresAt: conversation.confirmationExpiresAt,
     } : null,
   };
+}
+
+export async function conversationPublicView(client: Pick<Prisma.TransactionClient, 'order'>, conversation: Conversation) {
+  const order = conversation.pendingOrderId ? await client.order.findFirst({
+    where: { orderId: conversation.pendingOrderId, customerId: conversation.customerId }, select: { orderNumber: true },
+  }) : null;
+  return conversationView(conversation, order?.orderNumber ?? null);
 }
 
 export function createConversationRepository(database: PrismaClient) {
@@ -30,7 +38,10 @@ export function createConversationRepository(database: PrismaClient) {
         database.conversation.findMany({ where: { customerId }, orderBy: [{ createdAt: 'desc' }, { conversationId: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
         database.conversation.count({ where: { customerId } }),
       ], { isolationLevel: 'RepeatableRead' });
-      return { data: data.map(conversationView), pagination: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) } };
+      const pendingIds = data.flatMap(conversation => conversation.pendingOrderId ? [conversation.pendingOrderId] : []);
+      const pendingOrders = pendingIds.length ? await database.order.findMany({ where: { customerId, orderId: { in: pendingIds } }, select: { orderId: true, orderNumber: true } }) : [];
+      const numbers = new Map(pendingOrders.map(order => [order.orderId, order.orderNumber]));
+      return { data: data.map(conversation => conversationView(conversation, numbers.get(conversation.pendingOrderId ?? '') ?? null)), pagination: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) } };
     },
     findTurn(conversationId: string, clientMessageId: string) {
       return database.conversationTurn.findUnique({ where: { conversationId_clientMessageId: { conversationId, clientMessageId } } });
@@ -65,7 +76,7 @@ export function createConversationRepository(database: PrismaClient) {
             messages: { select: { messageId: true, role: true, content: true, createdAt: true } } } }),
         database.conversationTurn.count({ where: { conversationId, conversation: { customerId } } }),
       ], { isolationLevel: 'RepeatableRead' });
-      return { data: { ...conversationView(conversation), turns: turns.map((turn) => ({ ...turn,
+      return { data: { ...await conversationPublicView(database, conversation), turns: turns.map((turn) => ({ ...turn,
         messages: turn.messages.sort((a, b) => a.role === b.role ? 0 : a.role === 'USER' ? -1 : 1) })) },
         pagination: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) } };
     },

@@ -2,13 +2,18 @@
   "name": "ai-customer-support-agent",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/*"],
-  "engines": { "node": ">=24.0.0 <25", "npm": ">=11" },
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0 <25",
+    "npm": ">=11"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web \"npm run dev -w @support/api\" \"npm run dev -w @support/web\"",
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test -w @support/api",
+    "test": "npm run test --workspaces",
     "test:watch": "npm run test:watch -w @support/api",
     "test:integration": "npm run test:integration -w @support/api",
     "start": "npm run start -w @support/api",
@@ -21,5 +26,8 @@
     "docker:up": "docker compose up --build -d --wait",
     "docker:down": "docker compose down"
   },
-  "devDependencies": { "concurrently": "^9.2.1", "typescript": "^6.0.3" }
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^6.0.3"
+  }
 }

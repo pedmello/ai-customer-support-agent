@@ -150,3 +150,10 @@ vite.config.ts.timestamp-*
 
 # Prisma Client gerado pelo build
 apps/api/src/generated/
+
+# Capturas locais de revisão visual e artefatos do navegador
+/docs/assets/stage-4/
+/.playwright-mcp/
+
+# Backups locais do PostgreSQL
+*.dump

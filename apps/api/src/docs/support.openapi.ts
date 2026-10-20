@@ -12,6 +12,15 @@ const protectedErrors = {
 const orderId = { name: 'orderId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } };
 
 export const supportPaths = {
+  '/orders/by-number/{orderNumber}': {
+    get: {
+      tags: ['Orders'], operationId: 'getOwnOrderByNumber', summary: 'Consultar pedido próprio pelo número público',
+      description: 'Número público não autoriza acesso. A titularidade vem da sessão. As rotas por UUID continuam disponíveis para compatibilidade.',
+      security: authenticated,
+      parameters: [{ name: 'orderNumber', in: 'path', required: true, schema: { type: 'integer', minimum: 10000, maximum: 2147483647 }, example: 48213 }],
+      responses: { '200': { description: 'Pedido próprio com valores oficiais e snapshot de catálogo', content: json('OrderResponse') }, '400': error('VALIDATION_ERROR'), '404': error('ORDER_NOT_FOUND: inexistente e outro titular são indistinguíveis'), ...protectedErrors },
+    },
+  },
   '/customers': {
     post: {
       tags: ['Customers'], operationId: 'registerCustomer', summary: 'Cadastrar novo cliente demonstrativo e abrir sessão',
@@ -117,17 +126,20 @@ export const supportSchemas = {
     },
   },
   OrderItem: {
-    type: 'object', required: ['productId', 'title', 'quantity', 'unitPriceCents'], additionalProperties: false,
+    type: 'object', required: ['productId', 'title', 'imageUrl', 'catalogVersion', 'description', 'category', 'quantity', 'unitPriceCents'], additionalProperties: false,
     properties: {
-      productId: { type: 'integer', minimum: 1, description: 'Referência reservada para associação futura; sem integração nesta etapa' },
+      productId: { type: 'integer', minimum: 1, description: 'ID correspondente ao catálogo Fake Store. Novos pedidos usam snapshot local versionado e preços próprios em BRL.' },
       title: { type: 'string' }, quantity: { type: 'integer', minimum: 1 }, unitPriceCents: { type: 'integer', minimum: 0 },
+      imageUrl: { type: 'string', format: 'uri', nullable: true, description: 'Referência da imagem Fake Store; null nos pedidos anteriores. Com fallback visual, sem cópia local das fotos.' },
+      catalogVersion: { type: 'string', nullable: true }, description: { type: 'string', nullable: true }, category: { type: 'string', nullable: true },
     },
   },
   Order: {
-    type: 'object', required: ['orderId', 'status', 'currency', 'createdAt', 'updatedAt', 'cancelledAt', 'items', 'totalCents'], additionalProperties: false,
+    type: 'object', required: ['orderId', 'orderNumber', 'status', 'currency', 'createdAt', 'updatedAt', 'cancelledAt', 'items', 'totalCents'], additionalProperties: false,
     properties: {
       orderId: { type: 'string', format: 'uuid' }, status: { type: 'string', enum: ['PROCESSING', 'SHIPPED', 'CANCELLED'] },
-      currency: { type: 'string', example: 'USD' }, totalCents: { type: 'integer', minimum: 0 },
+      orderNumber: { type: 'integer', minimum: 10000, maximum: 2147483647, example: 48213, description: 'Número público único gerado por sequência PostgreSQL. Não é uma credencial.' },
+      currency: { type: 'string', example: 'BRL', description: 'Novos pedidos em BRL; pedidos antigos em USD preservados sem conversão.' }, totalCents: { type: 'integer', minimum: 0 },
       createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
       cancelledAt: { type: 'string', format: 'date-time', nullable: true },
       items: { type: 'array', items: ref('OrderItem') },

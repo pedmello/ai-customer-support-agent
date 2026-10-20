@@ -4,12 +4,13 @@ import type { OrderRecord, OrderRepository } from './order.repository.js';
 function orderView(order: OrderRecord) {
   return {
     orderId: order.orderId,
+    orderNumber: order.orderNumber,
     status: order.status,
     currency: order.currency,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     cancelledAt: order.cancelledAt,
-    items: order.items.map(({ productId, title, quantity, unitPriceCents }) => ({ productId, title, quantity, unitPriceCents })),
+    items: order.items.map(({ productId, title, imageUrl, catalogVersion, description, category, quantity, unitPriceCents }) => ({ productId, title, imageUrl, catalogVersion, description, category, quantity, unitPriceCents })),
     totalCents: order.items.reduce((total, item) => total + item.quantity * item.unitPriceCents, 0),
   };
 }
@@ -18,6 +19,11 @@ const orderNotFound = () => new AppError(404, 'ORDER_NOT_FOUND', 'Order not foun
 
 export function createOrderService(repository: OrderRepository) {
   return {
+    async getOwnByNumber(customerId: string, orderNumber: number) {
+      const order = await repository.findOwnByNumber(customerId, orderNumber);
+      if (!order) throw orderNotFound();
+      return orderView(order);
+    },
     async listOwn(customerId: string, page: number, pageSize: number) {
       const { orders, totalItems } = await repository.listOwn(customerId, page, pageSize);
       return {

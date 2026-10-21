@@ -52,6 +52,38 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe("Estado do atendimento e segurança", () => {
+  it('keeps direct handoff loading local and prevents repeated clicks without blocking selection', async () => {
+    const { result, client } = await setup();
+    let release!: (value: Outcome) => void;
+    client.send.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    let delivery!: Promise<unknown>;
+    act(() => { delivery = result.current.handoff(); void result.current.handoff(); });
+    expect(client.send).toHaveBeenCalledTimes(1);
+    expect(result.current.busy).toBe('');
+    expect(result.current.messageBusy).toBeTruthy();
+    const other = { ...history, conversationId: 'other' };
+    client.history.mockResolvedValueOnce(other);
+    await act(() => result.current.select('other'));
+    expect(result.current.messageBusy).toBe('');
+    await act(async () => {
+      release({ clientMessageId: 'human', code: 'HUMAN_REQUESTED', reply: 'É uma simulação.', conversation: { ...conversation, state: 'HUMAN_REQUESTED' } });
+      await delivery;
+    });
+    expect(result.current.selectedId).toBe('other');
+    expect(result.current.notice).toBe('');
+    expect(result.current.histories[conversation.conversationId]?.turns.at(-1)?.messages.at(-1)?.content).toBe('É uma simulação.');
+  });
+  it("vincula um Sim digitado somente à oferta da conversa selecionada", async () => {
+    const client = mockApi();
+    client.history.mockResolvedValue({ ...history, pendingHandoff: { offerId: "current-offer", expiresAt: "2099-01-01T00:00:00Z" } });
+    const { result } = await setup(client);
+    await act(() => result.current.send("Sim"));
+    expect(client.send.mock.calls[0]![1].handoffOfferId).toBe("current-offer");
+    client.history.mockResolvedValue({ ...history, conversationId: "other", pendingHandoff: null });
+    await act(() => result.current.select("other"));
+    await act(() => result.current.send("Sim"));
+    expect(client.send.mock.calls[1]![1].handoffOfferId).toBeUndefined();
+  });
   it("mantém o envio restrito à conversa de origem e permite trocar a seleção durante a espera", async () => {
     const { result, client } = await setup();
     let release!: (value: Outcome) => void;
@@ -265,12 +297,14 @@ describe("Estado do atendimento e segurança", () => {
       "Quero cancelar o pedido #48213",
     );
   });
-  it("registra atendimento humano sem pedir inferência à IA", async () => {
+  it("registra pedido direto pelo fluxo persistido do agente, sem aviso fixo ou chamada REST separada", async () => {
     const { result, client } = await setup();
+    client.send.mockResolvedValueOnce({ clientMessageId: 'handoff', code: 'HUMAN_REQUESTED', reply: 'Solicitação registrada. É uma simulação; não há equipe conectada.', conversation: { ...conversation, state: 'HUMAN_REQUESTED' } });
     await act(() => result.current.handoff());
-    expect(client.handoff).toHaveBeenCalledWith(conversation.conversationId);
-    expect(client.send).not.toHaveBeenCalled();
-    expect(result.current.notice).toContain("simulação");
+    expect(client.handoff).not.toHaveBeenCalled();
+    expect(client.send.mock.calls[0]![1].content).toBe('Quero falar com um atendente');
+    expect(result.current.notice).toBe('');
+    expect(result.current.history?.turns.at(-1)?.messages.at(-1)?.content).toContain('simulação');
   });
   it("remove os dados locais se uma operação autenticada retornar 401", async () => {
     const { result, client } = await setup();

@@ -42,6 +42,7 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   pendingConfirmation: Confirmation | null;
+  pendingHandoff?: { offerId: string; expiresAt: string } | null;
 }
 export interface Message {
   messageId: string;
@@ -75,6 +76,7 @@ export interface SendMessage {
   clientMessageId: string;
   content: string;
   confirmationId?: string;
+  handoffOfferId?: string;
 }
 export interface ProductResult {
   productId: number;
@@ -93,5 +95,6 @@ export interface Outcome {
   conversation: Conversation;
   order?: Order;
   products?: ProductResult[];
+  collection?: { count: number; totals: Array<{ currency: string; totalCents: number }>; orders: Array<{ orderNumber: number; status: OrderStatus; currency: string; totalCents: number; createdAt: string; items: Order['items'] }> };
   handoff?: { simulated: true };
 }

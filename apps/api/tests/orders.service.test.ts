@@ -13,6 +13,7 @@ function order(status: OrderRecord['status']): OrderRecord {
 
 function repository(existing: OrderRecord | null, updated: OrderRecord | null = null): OrderRepository {
   return {
+    listForSummary: vi.fn().mockResolvedValue(existing ? [existing] : []),
     findOwnByNumber: vi.fn().mockResolvedValue(existing),
     findOwn: vi.fn().mockResolvedValue(existing),
     cancelProcessing: vi.fn().mockResolvedValue(updated),

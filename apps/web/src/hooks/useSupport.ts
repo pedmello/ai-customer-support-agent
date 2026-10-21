@@ -3,6 +3,8 @@ import {
   api,
   ApiError,
   decisionMessage,
+  handoffDecisionMessage,
+  isHandoffDecision,
   type SupportApi,
 } from "../services/api";
 import type {
@@ -26,6 +28,8 @@ function mergeHistory(previous: History | undefined, incoming: History): History
   };
 }
 
+const activityLabels = { login: 'Entrando…', register: 'Criando sua demonstração…', logout: 'Encerrando sessão…', refresh: 'Atualizando…', create: 'Criando conversa…' };
+
 export function useSupport(client: SupportApi = api) {
   const [session, setSession] = useState<Session | null>(null);
   const [booting, setBooting] = useState(true);
@@ -34,6 +38,9 @@ export function useSupport(client: SupportApi = api) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const locked = useRef(false);
+  const [listsLoading, setListsLoading] = useState(false);
+  const listReads = useRef(0);
+  const historyReads = useRef(new Map<string, number>());
   const [orders, setOrders] = useState<Order[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [histories, setHistories] = useState<Record<string, History>>({});
@@ -81,6 +88,9 @@ export function useSupport(client: SupportApi = api) {
     setRetries({});
     setMessageErrors({});
     setLoadingHistories({});
+    setListsLoading(false);
+    listReads.current = 0;
+    historyReads.current.clear();
     locked.current = false;
     setBusy("");
     client.setCsrf();
@@ -93,25 +103,32 @@ export function useSupport(client: SupportApi = api) {
   }, [client]);
   const loadLists = useCallback(async () => {
     const scope = epoch.current, version = revision.current;
-    const [newOrders, newConversations] = await Promise.all([
-      client.orders(),
-      client.conversations(),
-    ]);
-    if (scope === epoch.current && version === revision.current) {
-      setOrders(newOrders);
-      setConversations(newConversations);
+    listReads.current++;
+    setListsLoading(true);
+    try {
+      const [newOrders, newConversations] = await Promise.all([client.orders(), client.conversations()]);
+      if (scope === epoch.current && version === revision.current) { setOrders(newOrders); setConversations(newConversations); }
+      return newConversations;
+    } finally {
+      if (scope === epoch.current) { listReads.current--; setListsLoading(listReads.current > 0); }
     }
-    return newConversations;
   }, [client]);
-  const loadHistory = useCallback(
-    async (id: string) => {
-      const scope = epoch.current;
+  const loadHistory = useCallback(async (id: string) => {
+    const scope = epoch.current;
+    historyReads.current.set(id, (historyReads.current.get(id) ?? 0) + 1);
+    setLoadingHistories(old => ({ ...old, [id]: true }));
+    try {
       const history = await client.history(id);
       if (scope !== epoch.current) return undefined;
       return storeHistory(history);
-    },
-    [client, storeHistory],
-  );
+    } finally {
+      if (scope === epoch.current) {
+        const remaining = (historyReads.current.get(id) ?? 1) - 1;
+        historyReads.current.set(id, remaining);
+        setLoadingHistories(old => ({ ...old, [id]: remaining > 0 }));
+      }
+    }
+  }, [client, storeHistory]);
   const boot = useCallback(async () => {
     setBooting(true);
     setBootError("");
@@ -141,12 +158,12 @@ export function useSupport(client: SupportApi = api) {
   }, [boot]);
 
   async function perform<T>(
-    label: string,
+    activity: keyof typeof activityLabels,
     action: () => Promise<T>,
   ): Promise<T | undefined> {
     if (locked.current) return;
     locked.current = true;
-    setBusy(label);
+    setBusy(activityLabels[activity]);
     setError("");
     setNotice("");
     try {
@@ -288,6 +305,9 @@ export function useSupport(client: SupportApi = api) {
     error,
     notice,
     busy,
+    activity: (Object.keys(activityLabels) as Array<keyof typeof activityLabels>).find(key => activityLabels[key] === busy),
+    listsLoading,
+    loadingConversations: loadingHistories,
     orders,
     conversations,
     histories,
@@ -302,7 +322,7 @@ export function useSupport(client: SupportApi = api) {
     historyLoading: !!(selectedId && loadingHistories[selectedId]),
     dismissError: () => setError(""),
     login: (email: string, password: string) =>
-      perform('Entrando…', async () => {
+      perform('login', async () => {
         const current = await client.login(email, password);
         client.setCsrf(current.csrfToken);
         setSession(current);
@@ -312,7 +332,7 @@ export function useSupport(client: SupportApi = api) {
         } catch { setNotice('Login concluído. Use Atualizar para carregar seus dados.'); }
       }),
     register: (name: string, email: string, password: string, passwordConfirmation: string) =>
-      perform("Criando sua demonstração…", async () => {
+      perform('register', async () => {
         const current = await client.register(name, email, password, passwordConfirmation);
         client.setCsrf(current.csrfToken);
         setSession(current);
@@ -325,41 +345,41 @@ export function useSupport(client: SupportApi = api) {
         }
       }),
     logout: () =>
-      perform("Encerrando sessão…", async () => {
+      perform('logout', async () => {
         await client.logout();
         clear();
       }),
     refresh: () =>
-      perform("Atualizando…", async () => {
+      perform('refresh', async () => {
         await loadLists();
         if (selectedId) await loadHistory(selectedId);
       }),
     select: async (id: string) => {
       const scope = epoch.current;
       setSelectedId(id);
-      setLoadingHistories(old => ({ ...old, [id]: true }));
+      if (historyReads.current.get(id)) return;
       try {
         await loadHistory(id);
       } catch (cause) {
         if (scope !== epoch.current) return;
         if (cause instanceof ApiError && cause.status === 401) clear();
         else setMessageErrors(old => ({ ...old, [id]: cause instanceof Error ? cause.message : "Não foi possível carregar a conversa." }));
-      } finally {
-        if (scope === epoch.current) setLoadingHistories(old => ({ ...old, [id]: false }));
       }
     },
-    create: () => perform("Criando conversa…", newConversation),
+    create: () => perform('create', newConversation),
     send: async (content: string) => {
-        const id = selectedId ?? (await perform("Criando conversa…", newConversation));
+        const id = selectedId ?? (await perform('create', newConversation));
         if (!id) return;
         await deliver(id, {
           clientMessageId: crypto.randomUUID(),
           content: content.trim(),
+          ...(historiesRef.current[id]?.pendingHandoff && isHandoffDecision(content)
+            ? { handoffOfferId: historiesRef.current[id]!.pendingHandoff!.offerId } : {}),
         });
       },
     askOrder: async (orderNumber: number, cancel: boolean) => {
         // A fresh conversation gives this order action an unambiguous, independent context.
-        const id = await perform("Criando conversa…", newConversation);
+        const id = await perform('create', newConversation);
         if (!id) return;
         await deliver(id, {
           clientMessageId: crypto.randomUUID(),
@@ -382,23 +402,17 @@ export function useSupport(client: SupportApi = api) {
       const input = selectedId ? retryRef.current.get(selectedId) : undefined;
       if (selectedId && input) await deliver(selectedId, input, true);
     },
-    handoff: () =>
-      perform("Registrando solicitação…", async () => {
-        const id = selectedId ?? (await newConversation());
-        if (!id || pendingRef.current.has(id) || retryRef.current.has(id)) return;
-        await client.handoff(id);
-        setNotice(
-          "Solicitação de atendimento humano registrada em simulação. Não há equipe conectada nem contato agendado.",
-        );
-        try {
-          await loadHistory(id);
-          await loadLists();
-        } catch {
-          setNotice(
-            "Solicitação simulada registrada. Use Atualizar para sincronizar a conversa.",
-          );
-        }
-      }),
+    decideHandoff: async (accept: boolean) => {
+      const offer = selectedId ? historiesRef.current[selectedId]?.pendingHandoff : undefined;
+      if (selectedId && offer) await deliver(selectedId, handoffDecisionMessage(offer.offerId, accept));
+    },
+    handoff: async () => {
+      const id = selectedId ?? (await perform('create', newConversation));
+      if (!id) return;
+      setNotice('');
+      // Explicit direct request, processed deterministically by the existing agent and persisted as a turn.
+      await deliver(id, { clientMessageId: crypto.randomUUID(), content: 'Quero falar com um atendente' });
+    },
   };
 }
 export type SupportState = ReturnType<typeof useSupport>;

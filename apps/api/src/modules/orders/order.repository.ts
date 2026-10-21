@@ -5,6 +5,9 @@ export type OrderRecord = Prisma.OrderGetPayload<{ include: { items: true } }>;
 export function createOrderRepository(database: PrismaClient, transaction?: Prisma.TransactionClient) {
   const client = transaction ?? database;
   return {
+    listForSummary(customerId: string) {
+      return client.order.findMany({ where: { customerId }, include: { items: true }, orderBy: [{ createdAt: 'desc' }, { orderNumber: 'desc' }] });
+    },
     findOwnByNumber(customerId: string, orderNumber: number) {
       return client.order.findFirst({ where: { customerId, orderNumber }, include: { items: true } });
     },

@@ -185,7 +185,7 @@ describe("password registration and returning sessions", () => {
         (message: { content: string }) => message.content,
       ),
     ).toEqual(["Mensagem anterior ao logout.", "Histórico preservado."]);
-    expect(await database.order.count({ where: { customerId: c.id } })).toBe(3);
+    expect(await database.order.count({ where: { customerId: c.id } })).toBe(6);
   });
   it("uses identical generic errors for wrong, unknown and legacy credentials", async () => {
     const c = await register();

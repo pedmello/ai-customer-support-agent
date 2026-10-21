@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { ErrorBanner } from "./ui";
 import { AuthLayout } from "./AuthLayout";
 import { PasswordField } from "./PasswordField";
+import { PendingIndicator } from './PendingIndicator';
 
 export function Registration({
   busy,
@@ -109,6 +110,7 @@ export function Registration({
           className="primary continue"
           disabled={disabled || !name.trim()}
         >
+          <PendingIndicator active={disabled} compact />
           {disabled ? "Criando conta…" : "Criar conta"}{" "}
           <span aria-hidden="true">→</span>
         </button>
@@ -121,7 +123,7 @@ export function Registration({
           Já tenho uma conta
         </button>
         <p className="demo-disclosure">
-          Você receberá três pedidos fictícios. Não envie dados sensíveis no
+          Você receberá seis pedidos fictícios. Não envie dados sensíveis no
           atendimento.
         </p>
         {(validation || error) && <ErrorBanner message={validation || error} />}

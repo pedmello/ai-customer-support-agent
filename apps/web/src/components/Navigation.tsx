@@ -1,5 +1,6 @@
 import type { Customer } from "../types";
 import { Brand, Icon } from "./ui";
+import { PendingIndicator } from './PendingIndicator';
 export type Section = "chat" | "orders" | "conversations";
 export function Navigation({
   customer,
@@ -7,12 +8,14 @@ export function Navigation({
   onNavigate,
   onLogout,
   busy,
+  loggingOut = false,
 }: {
   customer: Customer;
   section: Section;
   onNavigate: (section: Section) => void;
   onLogout: () => void;
   busy: boolean;
+  loggingOut?: boolean;
 }) {
   return (
     <header className="app-header">
@@ -51,6 +54,7 @@ export function Navigation({
         ))}
       </nav>
       <button className="logout" aria-label="Sair" title="Sair" onClick={onLogout} disabled={busy}>
+        <PendingIndicator compact active={loggingOut} />
         <Icon name="logout" />
       </button>
     </header>

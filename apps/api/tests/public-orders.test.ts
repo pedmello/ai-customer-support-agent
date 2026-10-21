@@ -49,11 +49,11 @@ describe("public order references", () => {
       resolveOrderReference("cancelar R$ 48213", null, null, "old").kind,
     ).toBe("invalid");
   });
-  it("selects three distinct products deterministically when supplied a random source", () => {
+  it("selects six distinct products deterministically when supplied a random source", () => {
     const first = selectDemoProducts(() => 0);
     expect(first).toEqual(selectDemoProducts(() => 0));
-    expect(first).toHaveLength(3);
-    expect(new Set(first.map((item) => item.productId)).size).toBe(3);
+    expect(first).toHaveLength(6);
+    expect(new Set(first.map((item) => item.productId)).size).toBe(6);
     expect(
       first.every(
         (item) =>

@@ -1,10 +1,13 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { useLayoutEffect } from "react";
 import type { SupportState } from "../hooks/useSupport";
 import { conversationTitle } from "./Conversations";
 import { date, EmptyState, ErrorBanner, Icon, time } from "./ui";
 import { OrderCard } from "./Orders";
 import { ExternalProducts } from "./ExternalProducts";
+import { HandoffOffer } from "./HandoffOffer";
+import { PendingIndicator } from './PendingIndicator';
 import { publicOrderText } from "../services/order-presentation";
 import type { Order } from "../types";
 
@@ -70,6 +73,7 @@ function ConfirmationPanel({ support }: { support: SupportState }) {
               disabled={!!support.busy || !!support.messageBusy || !!support.retry}
               onClick={() => void support.decide(false)}
             >
+              <PendingIndicator active={!!support.sending && support.sending.content === 'DESISTIR'} compact />
               Manter pedido
             </button>
             <button
@@ -77,6 +81,7 @@ function ConfirmationPanel({ support }: { support: SupportState }) {
               disabled={!!support.busy || !!support.messageBusy || !!support.retry}
               onClick={() => void support.decide(true)}
             >
+              <PendingIndicator active={!!support.sending && support.sending.content === 'CONFIRMAR CANCELAMENTO'} compact />
               Cancelar pedido
             </button>
           </div>
@@ -93,6 +98,25 @@ export function Chat({
   onOrder: (id: string) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const field = textarea.current;
+    if (!field) return;
+    const resize = () => {
+      field.style.height = 'auto';
+      const height = draft ? Math.max(42, Math.min(field.scrollHeight + 2, 132)) : 42;
+      field.style.height = `${height}px`;
+      field.style.overflowY = height >= 132 ? 'auto' : 'hidden';
+    };
+    resize();
+    if (typeof ResizeObserver === 'undefined') return;
+    let width = field.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (field.clientWidth !== width) { width = field.clientWidth; resize(); }
+    });
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [draft]);
   const scroll = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
   const history = support.history;
@@ -138,6 +162,7 @@ export function Chat({
           disabled={!!support.busy || !!support.messageBusy || !!support.retry}
           onClick={() => void support.handoff()}
         >
+          <PendingIndicator active={!!support.sending && support.sending.content === 'Quero falar com um atendente'} compact />
           <Icon name="headset" size={15} />
           <span>Falar com atendente</span>
         </button>
@@ -156,7 +181,7 @@ export function Chat({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {support.historyLoading && <p className="list-empty muted" role="status">Carregando histórico…</p>}
+        <PendingIndicator active={!!support.historyLoading} label="Carregando histórico…" />
         {!history?.turns.length && !outgoing && !support.historyLoading && (
           <EmptyState title="Seu atendimento começa aqui">
             <p>
@@ -247,20 +272,12 @@ export function Chat({
               <span className="message-avatar">
                 <Icon name="spark" size={13} />
               </span>
-              <div className="processing" role="status">
-                <span className="typing">•••</span>
-                {support.messageBusy || support.busy}
-              </div>
+              <PendingIndicator active={!!support.sending} label={support.messageBusy || 'Consultando o assistente…'} />
             </div>}
           </>
         )}
         <ConfirmationPanel support={support} />
-        {history?.state === "HUMAN_REQUESTED" && (
-          <div className="info-banner handoff-note">
-            Encaminhamento humano simulado registrado. Não há equipe conectada
-            nem contato agendado.
-          </div>
-        )}
+        <HandoffOffer support={support} />
       </div>
       <div className="composer-area">
         {support.messageError && <ErrorBanner message={support.messageError} />}
@@ -274,6 +291,7 @@ export function Chat({
               disabled={!!support.busy || !!support.messageBusy}
               onClick={() => void support.retrySend()}
             >
+              <PendingIndicator active={!!support.messageBusy} compact />
               Tentar novamente
             </button>
           </div>
@@ -295,14 +313,17 @@ export function Chat({
             disabled={!!support.busy || !!support.messageBusy || !!support.retry}
             onClick={() => void support.handoff()}
           >
+            <PendingIndicator active={!!support.sending && support.sending.content === 'Quero falar com um atendente'} compact />
             Falar com atendente
           </button>
         </div>
         <form className="composer" onSubmit={submit}>
           <button type="button" className="mobile-handoff" aria-label="Solicitar atendimento humano simulado" disabled={!!support.busy || !!support.messageBusy || !!support.retry} onClick={() => void support.handoff()}>
+            <PendingIndicator active={!!support.sending && support.sending.content === 'Quero falar com um atendente'} compact />
             <Icon name="headset" />
           </button>
           <textarea
+            ref={textarea}
             aria-label="Sua mensagem"
             placeholder="Escreva sua mensagem…"
             rows={1}
@@ -326,6 +347,7 @@ export function Chat({
             aria-label="Enviar mensagem"
             disabled={!!support.busy || !!support.messageBusy || !!support.retry || !draft.trim()}
           >
+            <PendingIndicator active={!!support.messageBusy || support.activity === 'create'} compact />
             <Icon name="arrow" />
           </button>
         </form>

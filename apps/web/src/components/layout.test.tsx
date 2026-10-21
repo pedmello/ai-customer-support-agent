@@ -4,10 +4,16 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ConversationsPage } from './Conversations';
 import { Orders } from './Orders';
 import { Navigation } from './Navigation';
+import { OrderRail } from './Conversations';
 import type { Order } from '../types';
 import type { SupportState } from '../hooks/useSupport';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it('presents every order in the support rail, including more than six', () => {
+  const orders = Array.from({ length: 8 }, (_, index) => ({ orderId: `order-${index}`, orderNumber: 10000 + index, status: 'PROCESSING', currency: 'BRL', totalCents: 1000, createdAt: '2026-10-20T12:00:00Z', items: [{ title: `Produto ${index}` }] }));
+  render(<OrderRail support={{ orders } as unknown as SupportState} onOrder={vi.fn()} />);
+  expect(document.querySelectorAll('.order-rail .order-summary')).toHaveLength(8);
+});
 it('busca e filtra conversas pelos estados reais sem oferecer encerramento fictício', () => {
   const support = {
     conversations: [
@@ -53,6 +59,10 @@ it('expande os dados do pedido no mobile e mantém o cancelamento como ação co
   const ask = vi.fn();
   render(<Orders orders={[order]} onSelect={vi.fn()} onAsk={ask} busy={false} />);
   expect(screen.getAllByRole('region', { name: 'Detalhes do pedido' })).toHaveLength(1);
+  const copy = screen.getByRole('button', { name: 'Copiar número do pedido 10001' });
+  expect(copy.title).toBe('Copiar número do pedido');
+  expect(copy.closest('.official-status')).toBeTruthy();
+  expect(screen.queryByText('Copiar')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Solicitar cancelamento' }));
   expect(ask).toHaveBeenCalledWith(10001, true);
   fireEvent.click(screen.getByRole('button', { name: /Camiseta/ }));

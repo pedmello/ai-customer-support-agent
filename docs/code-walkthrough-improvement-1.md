@@ -63,7 +63,7 @@ Não há transformação matemática entre número e UUID. A sequência gera o n
 
 `POST /customers` → controller existente → `createCustomerService().register()` → `demoOrders(now)` → `selectDemoProducts()` → `repository.register()`.
 
-selectDemoProducts embaralha uma cópia do catálogo e pega três itens, sem repetir o produto no mesmo cliente. demoOrders associa os status e copia metadados/centavos/versão. O repository mantém uma única transação de cliente, sessão, pedidos e itens. PostgreSQL atribui os números durante a inserção.
+selectDemoProducts embaralha uma cópia do catálogo e agora pega seis dos sete itens, sem repetir o produto no mesmo cliente. demoOrders associa dois pedidos de cada status e copia metadados/centavos/versão. O repository mantém uma única transação de cliente, sessão, pedidos e itens. PostgreSQL atribui os números durante a inserção. Consulte [a atualização de mobile e consultas gerais](mobile-orders-improvements.md); clientes anteriores não recebem pedidos extras.
 
 O catálogo JSON tem preço próprio em BRL. Não contém o campo price externo. A descrição/categoria/foto identificam o produto de referência; não autorizam cancelamento. Uma indisponibilidade de rede não interfere no cadastro porque essa etapa não faz fetch.
 

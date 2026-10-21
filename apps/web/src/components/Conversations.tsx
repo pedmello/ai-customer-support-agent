@@ -3,6 +3,7 @@ import type { Conversation, History, Order } from "../types";
 import { publicOrderText } from "../services/order-presentation";
 import { date, EmptyState, Icon, OrderSummary } from "./ui";
 import type { SupportState } from "../hooks/useSupport";
+import { PendingIndicator } from './PendingIndicator';
 
 export function conversationTitle(
   conversation: Conversation,
@@ -45,7 +46,7 @@ export function ConversationList({
           return (
             <button
               key={conversation.conversationId}
-              disabled={!!support.busy}
+              disabled={!!support.loadingConversations?.[conversation.conversationId]}
               aria-busy={!!support.pendingConversations?.[conversation.conversationId]}
               onClick={() => onSelect(conversation.conversationId)}
               className={
@@ -57,6 +58,7 @@ export function ConversationList({
               <strong>
                 {conversationTitle(conversation, history, support.orders)}
               </strong>
+              <PendingIndicator active={!!support.loadingConversations?.[conversation.conversationId]} compact />
               <small>
                 {support.pendingConversations?.[conversation.conversationId]
                   ? "Assistente respondendo…"
@@ -96,11 +98,13 @@ export function ContextPanel({
         onClick={() => void support.create()}
         disabled={!!support.busy}
       >
+        <PendingIndicator active={support.activity === 'create'} compact />
         <Icon name="plus" />
         Nova conversa
       </button>
       <div className="section-label">
         <span>Conversas recentes</span>
+        <PendingIndicator active={!!support.listsLoading} compact />
         <button onClick={onAll}>Ver todas</button>
       </div>
       <ConversationList
@@ -119,14 +123,15 @@ export function OrderRail({ support, onOrder }: { support: SupportState; onOrder
           Ver todos
         </button>
       </div>
-      {support.orders.slice(0, 4).map((order) => (
+      <PendingIndicator active={!!support.listsLoading} label="Carregando pedidos…" />
+      {support.orders.map((order) => (
         <OrderSummary
           key={order.orderId}
           order={order}
           onClick={() => onOrder(order.orderId)}
         />
       ))}
-      {!support.orders.length && (
+      {!support.orders.length && !support.listsLoading && (
         <p className="muted list-empty">Nenhum pedido disponível.</p>
       )}
       <p className="rail-hint">Clique em um pedido para ver os detalhes completos.</p>
@@ -155,6 +160,7 @@ export function ConversationsPage({
       <header className="page-heading">
         <div>
           <h1>Conversas</h1>
+          <PendingIndicator active={!!support.listsLoading} label="Carregando conversas…" />
         </div>
         <button
           className="primary"
@@ -164,6 +170,7 @@ export function ConversationsPage({
             if (id) onSelect(id);
           }}
         >
+          <PendingIndicator active={support.activity === 'create'} compact />
           <Icon name="plus" />
           Nova conversa
         </button>

@@ -20,6 +20,9 @@ const orderNotFound = () => new AppError(404, 'ORDER_NOT_FOUND', 'Order not foun
 
 export function createOrderService(repository: OrderRepository) {
   return {
+    async listForSummary(customerId: string) {
+      return (await repository.listForSummary(customerId)).map(orderView);
+    },
     async getOwnByNumber(customerId: string, orderNumber: number) {
       const order = await repository.findOwnByNumber(customerId, orderNumber);
       if (!order) throw orderNotFound();

@@ -48,7 +48,7 @@ Arquivos: `demo-catalog.data.json` e `demo-catalog.ts`, no módulo customers. Sn
 
 O JSON mantém nomes canônicos (inclusive eventual espaço final recebido), descrições, categorias e URLs de imagens correspondentes aos IDs externos. Estes metadados não são traduções inventadas. unitPriceCents é uma decisão demonstrativa própria da API, não preço externo nem conversão de USD. A mochila ID 1 foi retirada da seleção após a correção solicitada; snapshots já criados não são alterados retroativamente. A versão v1 foi usada somente antes desse ajuste e pode existir em registros anteriores.
 
-O cadastro usa seleção embaralhada sem reposição: três produtos distintos, um pedido PROCESSING, um SHIPPED e um CANCELLED. Aleatoriedade criptográfica padrão; função injetável para testes determinísticos. Variação é probabilística: não há promessa de que dois cadastros consecutivos terão conjuntos diferentes. O catálogo possui quatro opções e cada cadastro seleciona três.
+O cadastro usa seleção embaralhada sem reposição. Na atualização documentada em [mobile-orders-improvements.md](mobile-orders-improvements.md), passou a escolher seis produtos distintos entre sete opções, com dois pedidos de cada status. Aleatoriedade criptográfica padrão; função injetável para testes determinísticos. Variação é probabilística: não há promessa de que dois cadastros consecutivos terão conjuntos diferentes. Registros e resultados históricos de validação abaixo referem-se à versão original de três pedidos; contas anteriores não são repovoadas.
 
 O cadastro transacional existente copia nome, referência da foto, descrição, categoria, versão, quantidade e preço para o item. Não faz chamada HTTP à Fake Store. Login não foi adicionado e nenhum fluxo de leitura gera novos pedidos.
 

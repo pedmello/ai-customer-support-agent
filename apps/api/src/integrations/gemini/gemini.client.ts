@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import type { Logger } from 'pino';
-import { AiFailure, intentSchema, type IntentModel } from '../ai/intent-model.js';
+import { AiFailure, providerIntentSchema, type IntentModel } from '../ai/intent-model.js';
 import { AGENT_SYSTEM_PROMPT } from '../openai/agent.prompt.js';
 
 function classifyFailure(error: unknown, aborted: boolean) {
@@ -38,7 +38,7 @@ export function createGeminiModel(options: { apiKey?: string; model: string; tim
               config: {
                 systemInstruction: AGENT_SYSTEM_PROMPT,
                 responseMimeType: 'application/json',
-                responseJsonSchema: z.toJSONSchema(intentSchema, { target: 'draft-7' }),
+                responseJsonSchema: z.toJSONSchema(providerIntentSchema, { target: 'draft-7' }),
                 maxOutputTokens: 1024,
                 candidateCount: 1,
                 automaticContinuation: false,
@@ -51,7 +51,7 @@ export function createGeminiModel(options: { apiKey?: string; model: string; tim
             }
             let value: unknown;
             try { value = JSON.parse(response.text); } catch { throw new AiFailure('AI_INVALID_RESPONSE'); }
-            const parsed = intentSchema.safeParse(value);
+            const parsed = providerIntentSchema.safeParse(value);
             if (!parsed.success) throw new AiFailure('AI_INVALID_RESPONSE');
             options.logger.info({ integration: 'gemini', provider: 'gemini', model: options.model, attempt,
               durationMs: Date.now() - attemptStarted, totalDurationMs: Date.now() - started, category: 'SUCCESS' }, 'Intent interpretation completed');

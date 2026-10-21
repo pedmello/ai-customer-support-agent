@@ -15,11 +15,17 @@ afterEach(() => vi.resetAllMocks());
 
 describe('OpenAI SDK boundary (mocked)', () => {
   const model = () => createOpenAiModel({ apiKey: 'fake-test-key', model: 'configurable-test-model', timeoutMs: 1000, logger });
+  it('shares the strict read plan contract with Gemini', async () => {
+    const intent = { intent: 'ORDER_COLLECTION', orderId: null, orderNumber: null, opening: 'NONE', collectionPlan: { operation: 'TOTAL', statusFilter: { mode: 'EXCLUDE', statuses: ['CANCELLED'] }, selection: null } };
+    parse.mockResolvedValue({ status: 'completed', output_parsed: intent });
+    expect(await model().interpret({ content: 'Quanto custaram as compras não canceladas?', history: [] })).toEqual(intent);
+    expect(parse.mock.calls[0]![0].text.format.schema.required).toContain('collectionPlan');
+  });
   it('uses structured intent, configured model, no server-side storage or tools', async () => {
-    const intent = { intent: 'ORDER_STATUS', orderId: null, orderNumber: null, opening: 'GREETING' };
+    const intent = { intent: 'ORDER_STATUS', orderId: null, orderNumber: null, opening: 'GREETING', collectionPlan: null };
     parse.mockResolvedValue({ status: 'completed', output_parsed: intent });
     expect(await model().interpret({ content: 'pedido', history: [] })).toEqual(intent);
-    expect(parse.mock.calls[0]![0]).toMatchObject({ model: 'configurable-test-model', store: false, max_output_tokens: 300 });
+    expect(parse.mock.calls[0]![0]).toMatchObject({ model: 'configurable-test-model', store: false, max_output_tokens: 600 });
     expect(parse.mock.calls[0]![0]).not.toHaveProperty('tools');
     expect(parse.mock.calls[0]![0].input[0].role).toBe('system');
   });

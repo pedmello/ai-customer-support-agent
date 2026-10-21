@@ -15,6 +15,9 @@ export function conversationView(conversation: Conversation, orderNumber: number
       orderNumber,
       expiresAt: conversation.confirmationExpiresAt,
     } : null,
+    pendingHandoff: conversation.handoffOfferId && conversation.handoffOfferExpiresAt && conversation.handoffOfferExpiresAt > new Date()
+      ? { offerId: conversation.handoffOfferId, expiresAt: conversation.handoffOfferExpiresAt }
+      : null,
   };
 }
 

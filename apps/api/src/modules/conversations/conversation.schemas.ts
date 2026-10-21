@@ -9,5 +9,8 @@ export const sendMessageSchema = z.object({
   clientMessageId: z.uuid(),
   content: z.string().trim().min(1).max(2000),
   confirmationId: z.uuid().optional(),
-}).strict();
+  handoffOfferId: z.uuid().optional(),
+}).strict().refine(input => !(input.confirmationId && input.handoffOfferId), {
+  message: 'Envie apenas uma decisão por mensagem.',
+});
 export type SendMessage = z.infer<typeof sendMessageSchema>;

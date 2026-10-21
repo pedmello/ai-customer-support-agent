@@ -36,6 +36,20 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+it('simplifies only compact order details without changing desktop data', () => {
+  const cancelled = { ...order, status: 'CANCELLED' as const, cancelledAt: order.createdAt, items: [{ ...order.items[0]!, category: 'electronics' }] };
+  const view = render(<OrderDetails compact order={cancelled} busy={false} onAsk={() => {}} onBack={() => {}} />);
+  expect(screen.queryByText('electronics')).toBeNull();
+  expect(screen.queryByText(/^Cancelado em/)).toBeNull();
+  expect(screen.queryByText(/^Unidade:/)).toBeNull();
+  expect(screen.getByText(/Quantidade: 1/)).toBeTruthy();
+  view.rerender(<OrderDetails order={cancelled} busy={false} onAsk={() => {}} onBack={() => {}} />);
+  expect(screen.getByText('electronics')).toBeTruthy();
+  expect(screen.getByText(/^Cancelado em/)).toBeTruthy();
+  expect(screen.getByText(/^Unidade:/)).toBeTruthy();
+  expect(screen.getByText(/As informações dos produtos são baseadas no catálogo da Fake Store API/).textContent?.replace(/\s+/g, ' ')).toBe('As informações dos produtos são baseadas no catálogo da Fake Store API, utilizado como fonte complementar. Os valores, pedidos e status apresentados são definidos pelo Support AI.');
+  expect(screen.queryByText(/Consulte o catálogo complementar/)).toBeNull();
+});
 it("shows the snapshot photo and falls back without hiding the product when it fails", () => {
   render(
     <ProductImage

@@ -7,7 +7,7 @@ import { hashPassword } from '../auth/password.js';
 
 export function demoOrders(now: Date, random?: () => number): Prisma.OrderCreateWithoutCustomerInput[] {
   const products = selectDemoProducts(random);
-  return (['PROCESSING', 'SHIPPED', 'CANCELLED'] as const).map((status, index) => ({
+  return (['PROCESSING', 'SHIPPED', 'CANCELLED', 'PROCESSING', 'SHIPPED', 'CANCELLED'] as const).map((status, index) => ({
     status,
     currency: 'BRL',
     createdAt: now,

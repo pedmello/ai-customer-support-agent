@@ -2,7 +2,7 @@
 
 Agente seguro de atendimento por mensagens de texto. **Etapas 1 a 4 e Implementações 1 e 2: infraestrutura, clientes, sessões, pedidos públicos, agente OpenAI/Gemini, catálogo Fake Store, atendimento humano simulado e frontend React responsivo.** Inclui login por senha e recuperação por código de e-mail, com integração Resend configurável.
 
-O cadastro cria cliente, sessão e três pedidos em uma transação. **Os pedidos são demonstrativos e o cadastro não comprova posse do e-mail.** O login exige senha; recuperação exige código recebido no endereço cadastrado. E-mail duplicado não concede acesso à conta existente. O cancelamento REST direto exige identidade, CSRF, titularidade e estado permitido; representa uma operação autorizada pelo fluxo chamador. **O fluxo do agente acrescenta confirmação explícita persistida, expiração e uso único**, sem modificar esse contrato direto.
+O cadastro cria cliente, sessão e seis pedidos em uma transação. **Os pedidos são demonstrativos e o cadastro não comprova posse do e-mail.** O login exige senha; recuperação exige código recebido no endereço cadastrado. E-mail duplicado não concede acesso à conta existente. O cancelamento REST direto exige identidade, CSRF, titularidade e estado permitido; representa uma operação autorizada pelo fluxo chamador. **O fluxo do agente acrescenta confirmação explícita persistida, expiração e uso único**, sem modificar esse contrato direto.
 
 ## Requisitos
 
@@ -181,7 +181,7 @@ O comando aplica migrations somente ao banco de testes e verifica o sufixo `_tes
 
 | Método | Endpoint | Regra principal |
 | --- | --- | --- |
-| POST | `/customers` | Nome, e-mail, senha e confirmação; cria sessão e três pedidos atomicamente |
+| POST | `/customers` | Nome, e-mail, senha e confirmação; cria sessão e seis pedidos atomicamente |
 | POST | `/sessions` | Login por senha, sem criação de pedidos |
 | POST | `/password-recovery/request` | Solicita código por e-mail; resposta genérica |
 | POST | `/password-recovery/reset` | Consome código e redefine senha, revogando todas as sessões |
@@ -322,6 +322,8 @@ A versão atual substitui a mochila Fjallraven pelo HD externo WD 2TB, ID 9. IDs
 
 ## Autenticação por senha e recuperação (Implementação 2)
 
+O atendimento humano agora é oferecido antes de qualquer registro automático: fora do escopo e falhas da IA apenas perguntam se o cliente deseja solicitar. Aceite/recusa usam uma oferta vinculada à conversa, com expiração e uso único. Pedido direto de atendente continua disponível. Consulte [fluxo, testes e limites atuais do agente](docs/human-handoff-consent.md).
+
 Consulte [o relatório e a configuração do Resend](docs/improvement-2.md) e [o guia de estudo do código](docs/code-walkthrough-improvement-2.md).
 
 Cadastro exige senha e confirmação (12–128 caracteres, sem alteração de conteúdo). O login restaura os mesmos pedidos e conversas. Senhas usam Argon2id; sessões usam apenas cookies HttpOnly e CSRF em memória. Cadastro não verifica o e-mail. Recuperação bem-sucedida comprova o acesso ao endereço naquele momento.
@@ -333,3 +335,11 @@ As configurações padrão são `EMAIL_TIMEOUT_MS=3000`, `PASSWORD_RESET_TTL_SEC
 Documentação: [entrega e validação](docs/improvement-1.md), [guia didático do código](docs/code-walkthrough-improvement-1.md) e [views/consultas no DBeaver](docs/database-readability.md).
 
 Antes de executar uma versão atualizada sobre banco anterior, aplique as migrations incrementais com `npm run db:deploy` (ou o comando de deploy Docker já documentado). Não use reset. Na validação local desta entrega a migration já foi aplicada, com backup local ignorado pelo Git e conferência dos dados anteriores.
+
+Ajustes atuais de mobile, fontes locais, seis pedidos por novo cadastro e consultas gerais do agente: [documenta��o e guia de c�digo](docs/mobile-orders-improvements.md).
+
+Loaders locais, confirmação humana no histórico e ajustes atuais de interface: [documentação do frontend](docs/frontend-feedback.md).
+
+Consultas de pedidos, filtros, contagens, rankings e contexto individual: [correção e guia das funções](docs/order-query-improvements.md).
+
+Interpretação híbrida atual de consultas indiretas, planos de leitura e negações: [contrato, segurança e guia de código](docs/collective-query-plans.md).

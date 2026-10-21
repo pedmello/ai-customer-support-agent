@@ -135,6 +135,9 @@ model Conversation {
   pendingOrderId String? @map("pending_order_id") @db.Uuid
   confirmationId String? @map("confirmation_id") @db.Uuid
   confirmationExpiresAt DateTime? @map("confirmation_expires_at") @db.Timestamptz(3)
+  handoffOfferId String? @map("handoff_offer_id") @db.Uuid
+  handoffOfferReason HandoffReason? @map("handoff_offer_reason")
+  handoffOfferExpiresAt DateTime? @map("handoff_offer_expires_at") @db.Timestamptz(3)
   leaseId String? @map("lease_id") @db.Uuid
   busyUntil DateTime? @map("busy_until") @db.Timestamptz(3)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

@@ -56,7 +56,7 @@ afterAll(async () => {
 });
 
 describe('transactional registration', () => {
-  it('persists a new customer, three consistent orders and only the session hash', async () => {
+  it('persists a new customer, six consistent orders and only the session hash', async () => {
     const targetEmail = email();
     const response = await request(app).post('/customers').send({ password: 'Test-password-123!', passwordConfirmation: 'Test-password-123!', name: '  Ana Silva  ', email: ` ${targetEmail.toUpperCase()} ` });
     expect(response.status).toBe(201);
@@ -70,8 +70,8 @@ describe('transactional registration', () => {
     expect(JSON.stringify(session)).not.toContain(rawToken);
     expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now());
     const orders = await database.order.findMany({ where: { customerId: session.customerId }, include: { items: true } });
-    expect(orders.map((order) => order.status).sort()).toEqual(['CANCELLED', 'PROCESSING', 'SHIPPED']);
-    expect(new Set(orders.map((order) => order.orderId)).size).toBe(3);
+    expect(orders.map((order) => order.status).sort()).toEqual(['CANCELLED', 'CANCELLED', 'PROCESSING', 'PROCESSING', 'SHIPPED', 'SHIPPED']);
+    expect(new Set(orders.map((order) => order.orderId)).size).toBe(6);
     for (const order of orders) {
       expect(order.items).toHaveLength(1);
       expect(order.items[0]!.productId).toBeGreaterThan(0);
@@ -118,7 +118,7 @@ describe('transactional registration', () => {
     ]);
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
     const customer = await database.customer.findUniqueOrThrow({ where: { email: targetEmail }, include: { orders: true, sessions: true } });
-    expect(customer.orders).toHaveLength(3);
+    expect(customer.orders).toHaveLength(6);
     expect(customer.sessions).toHaveLength(1);
   });
 
@@ -243,12 +243,12 @@ describe('ownership and order cancellation', () => {
     const second = await register();
     const a = await ownOrders(first.cookie);
     const b = await ownOrders(second.cookie);
-    expect(a).toHaveLength(3);
-    expect(b).toHaveLength(3);
+    expect(a).toHaveLength(6);
+    expect(b).toHaveLength(6);
     expect(a.some((order) => b.some((other) => other.orderId === order.orderId))).toBe(false);
     const page = await request(app).get('/orders?page=2&pageSize=2').set('Cookie', first.cookie);
-    expect(page.body.data).toHaveLength(1);
-    expect(page.body.pagination).toEqual({ page: 2, pageSize: 2, totalItems: 3, totalPages: 2 });
+    expect(page.body.data).toHaveLength(2);
+    expect(page.body.pagination).toEqual({ page: 2, pageSize: 2, totalItems: 6, totalPages: 3 });
     expect((await request(app).get('/orders?pageSize=101').set('Cookie', first.cookie)).status).toBe(400);
     expect((await request(app).get(`/orders?customerId=${second.customerId}`).set('Cookie', first.cookie)).status).toBe(400);
   });

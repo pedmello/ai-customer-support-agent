@@ -10,6 +10,7 @@ import {
 import { Orders } from "./components/Orders";
 import { Chat } from "./components/Chat";
 import { Brand, ErrorBanner, Icon } from "./components/ui";
+import { PendingIndicator } from './components/PendingIndicator';
 
 export function App() {
   const support = useSupport();
@@ -25,7 +26,7 @@ export function App() {
       <main className="startup" role="status">
         <Brand />
         <p>Preparando seu atendimento…</p>
-        <span className="loading-line" />
+        <PendingIndicator active label="Carregando aplicação…" />
       </main>
     );
   if (support.bootError)
@@ -65,6 +66,7 @@ export function App() {
         }}
         onLogout={() => void support.logout()}
         busy={!!support.busy}
+        loggingOut={support.activity === 'logout'}
       />
       <main className="workspace">
         <div className="workspace-notifications">
@@ -96,6 +98,7 @@ export function App() {
               selectedId={orderId}
               onSelect={setOrderId}
               busy={!!support.busy}
+              loading={support.listsLoading}
               onAsk={(id, cancel) => {
                 setSection("chat");
                 void support.askOrder(id, cancel);
@@ -105,9 +108,9 @@ export function App() {
             <>
               <ConversationsPage
                 support={support}
-                onSelect={async (id) => {
-                  await support.select(id);
+                onSelect={(id) => {
                   setConversationOpen(true);
+                  void support.select(id);
                 }}
               />
               <div className="conversation-detail">
@@ -121,7 +124,7 @@ export function App() {
         </div>
         <footer className="workspace-footer">
           <span role="status">{support.busy || "Ambiente demonstrativo · pedidos fictícios"}</span>
-          <button disabled={!!support.busy} onClick={() => void support.refresh()}><Icon name="refresh" size={12} />Atualizar</button>
+          <button disabled={!!support.busy} onClick={() => void support.refresh()}><PendingIndicator compact active={support.activity === 'refresh'} /><Icon name="refresh" size={12} />Atualizar</button>
         </footer>
       </main>
     </div>

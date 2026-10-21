@@ -2,6 +2,10 @@
 
 ## Escopo
 
+Ajustes mais recentes: [loaders locais, confirmação humana no histórico, faixa completa de pedidos e header mobile](frontend-feedback.md). O header tem 16px no topo/laterais e row-gap de 10px no mobile.
+
+Atualização posterior: [Mobile, tipografia e consultas gerais](mobile-orders-improvements.md). Geist e Material Symbols são servidos localmente; o rodapé e o padding externo são removidos somente no mobile, o textarea cresce até 132px e a cópia fica no cabeçalho do pedido expandido.
+
 As seis referências aprovadas orientam o cabeçalho, as três abas e suas versões mobile. A reformulação usa o backend existente; não altera autenticação, IA, banco, migrations ou regras de cancelamento.
 
 No desktop, o cabeçalho reúne marca, navegação central em cápsula, identificação e saída. Atendimento apresenta conversas à esquerda, chat ao centro e pedidos à direita. Conversas apresenta busca/filtros e histórico ao lado. Pedidos apresenta lista e detalhes oficiais.

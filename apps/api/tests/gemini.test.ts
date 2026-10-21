@@ -11,11 +11,17 @@ vi.mock('@google/genai', () => ({ GoogleGenAI: class {
 } }));
 const logger = createLogger('silent');
 const input = { content: 'Consultar pedido', history: [] };
-const intent = { intent: 'ORDER_STATUS', orderId: null, orderNumber: null, opening: 'NONE' };
+const intent = { intent: 'ORDER_STATUS', orderId: null, orderNumber: null, opening: 'NONE', collectionPlan: null };
 const model = () => createGeminiModel({ apiKey: 'fake-test-key', model: 'configured-model', timeoutMs: 1000, logger });
 afterEach(() => { vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('Gemini SDK boundary (mocked, no external calls)', () => {
+  it('accepts structured collection plans and requires the nullable field in the provider contract', async () => {
+    const response = { ...intent, intent: 'ORDER_COLLECTION', collectionPlan: { operation: 'EXISTS', statusFilter: { mode: 'INCLUDE', statuses: ['SHIPPED'] }, selection: null } };
+    generateContent.mockResolvedValue({ text: JSON.stringify(response), candidates: [{ finishReason: 'STOP' }] });
+    expect(await model().interpret(input)).toEqual(response);
+    expect(generateContent.mock.calls[0]![0].config.responseJsonSchema.required).toContain('collectionPlan');
+  });
   it('uses the configured model and JSON Schema, keeping history in untrusted user data', async () => {
     generateContent.mockResolvedValue({ text: JSON.stringify(intent), candidates: [{ finishReason: 'STOP' }] });
     expect(await model().interpret(input)).toEqual(intent);
@@ -30,6 +36,8 @@ describe('Gemini SDK boundary (mocked, no external calls)', () => {
     {}, { text: 'not JSON', candidates: [{ finishReason: 'STOP' }] },
     { text: JSON.stringify({ ...intent, intent: 'RUN_SQL' }), candidates: [{ finishReason: 'STOP' }] },
     { text: JSON.stringify({ ...intent, extra: 'untrusted' }), candidates: [{ finishReason: 'STOP' }] },
+    { text: JSON.stringify({ ...intent, collectionPlan: { operation: 'DELETE', statusFilter: null, selection: null } }), candidates: [{ finishReason: 'STOP' }] },
+    { text: JSON.stringify({ ...intent, collectionPlan: { operation: 'COUNT', statusFilter: null, selection: null, sql: 'untrusted' } }), candidates: [{ finishReason: 'STOP' }] },
     { text: JSON.stringify(intent), candidates: [{ finishReason: 'MAX_TOKENS' }] },
     { text: JSON.stringify(intent), candidates: [{ finishReason: 'SAFETY' }] },
     { text: JSON.stringify(intent), promptFeedback: { blockReason: 'SAFETY' }, candidates: [{ finishReason: 'STOP' }] },

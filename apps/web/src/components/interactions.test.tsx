@@ -60,6 +60,44 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe("Interações de confirmação e pedidos", () => {
+  it('grows the composer to its cap, shrinks after clearing and preserves multiline keyboard input', async () => {
+    const client = clientWithHistory({ ...history, state: 'ACTIVE', pendingConfirmation: null });
+    render(<Harness client={client} />);
+    await screen.findByRole('heading', { name: /Conversa de/ });
+    const field = await screen.findByRole('textbox', { name: 'Sua mensagem' }) as HTMLTextAreaElement;
+    Object.defineProperty(field, 'scrollHeight', { configurable: true, value: 96 });
+    fireEvent.change(field, { target: { value: 'Primeira linha\nSegunda linha' } });
+    expect(field.style.height).toBe('98px');
+    fireEvent.keyDown(field, { key: 'Enter', shiftKey: true });
+    expect(client.send).not.toHaveBeenCalled();
+    Object.defineProperty(field, 'scrollHeight', { configurable: true, value: 500 });
+    fireEvent.change(field, { target: { value: 'Longa mensagem'.repeat(100) } });
+    expect(field.style.height).toBe('132px');
+    fireEvent.change(field, { target: { value: '' } });
+    expect(field.style.height).toBe('42px');
+  });
+  it.each([true, false])("envia consentimento humano %s com a oferta atual, sem cliques duplicados", async accept => {
+    const client = clientWithHistory({ ...history, pendingConfirmation: null, state: "ACTIVE",
+      pendingHandoff: { offerId: "private-offer", expiresAt: "2099-01-01T00:00:00Z" } });
+    render(<Harness client={client} />);
+    const button = await screen.findByRole("button", { name: accept ? "Sim, solicitar atendimento" : "Não, obrigado" });
+    expect(document.body.textContent).not.toContain("private-offer");
+    fireEvent.click(button); fireEvent.click(button);
+    await waitFor(() => expect(client.send).toHaveBeenCalledTimes(1));
+    expect(client.send.mock.calls[0]![1]).toMatchObject({
+      handoffOfferId: "private-offer", content: accept ? "Sim, solicitar atendimento" : "Não, obrigado",
+    });
+    expect(client.handoff).not.toHaveBeenCalled();
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+  it("não permite aceitar uma oferta humana expirada", async () => {
+    const client = clientWithHistory({ ...history, pendingConfirmation: null, state: "ACTIVE",
+      pendingHandoff: { offerId: "private-offer", expiresAt: "2000-01-01T00:00:00Z" } });
+    render(<Harness client={client} />);
+    await screen.findByText("Esta oferta expirou");
+    expect(screen.queryByRole("button", { name: "Sim, solicitar atendimento" })).toBeNull();
+    expect(client.send).not.toHaveBeenCalled();
+  });
   it("mantém a mensagem visível quando o envio fica sem resultado confirmado", async () => {
     const client = clientWithHistory({ ...history, state: "ACTIVE", pendingConfirmation: null });
     client.send.mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR"));

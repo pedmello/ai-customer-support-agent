@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useCompactLayout } from "../hooks/useCompactLayout";
 import { ProductImage } from "./ProductImage";
 import { CopyOrderNumber } from "./CopyOrderNumber";
+import { PendingIndicator } from './PendingIndicator';
 import { publicOrderLabel } from "../services/order-presentation";
 import type { Order, OrderStatus } from "../types";
 import {
@@ -74,7 +75,7 @@ export function OrderDetails({
               disabled={busy}
               onClick={() => onAsk(true)}
             >
-              <span aria-hidden="true">⊖</span> Solicitar cancelamento
+              <Icon name="cancel" size={16} /> Solicitar cancelamento
             </button>
           )}
           <button
@@ -111,8 +112,9 @@ export function OrderDetails({
                   Última atualização: {date(order.updatedAt)}
                 </p>
               </div>
+              {compact && <CopyOrderNumber orderNumber={order.orderNumber} iconOnly />}
             </div>
-            {order.cancelledAt && (
+            {!compact && order.cancelledAt && (
               <p className="muted">Cancelado em {date(order.cancelledAt)}</p>
             )}
             <p className="fine-print">
@@ -126,13 +128,13 @@ export function OrderDetails({
                 <ProductImage imageUrl={item.imageUrl} title={item.title} />
                 <div>
                   <strong>{item.title}</strong>
-                  {item.category && <small>{item.category}</small>}
+                  {!compact && item.category && <small>{item.category}</small>}
                   <small>
                     Produto #{item.productId} · Quantidade: {item.quantity}
                   </small>
-                  <small>
+                  {!compact && <small>
                     Unidade: {money(item.unitPriceCents, order.currency)}
-                  </small>
+                  </small>}
                 </div>
                 <strong>
                   {money(item.unitPriceCents * item.quantity, order.currency)}
@@ -152,7 +154,7 @@ export function OrderDetails({
               Valores oficiais do pedido, na moeda registrada.
             </p>
           </section>
-          <section className="card">
+          {!compact && <section className="card">
             <h2>Identificação</h2>
             <small className="muted">Número do pedido</small>
             <p className="public-order-number">{publicOrderLabel(order)}</p>
@@ -165,12 +167,13 @@ export function OrderDetails({
             <p className="fine-print">
               Pedido fictício criado para esta demonstração.
             </p>
-          </section>
+          </section>}
           <section className="card">
             <h2>Sobre os produtos</h2>
             <p className="muted">
-              Consulte o catálogo complementar da Fake Store API pelo chat. Os
-              preços e o status continuam sendo os do pedido.
+              As informações dos produtos são baseadas no catálogo da Fake Store API,
+              utilizado como fonte complementar. Os valores, pedidos e status
+              apresentados são definidos pelo Support AI.
             </p>
           </section>
         </div>
@@ -184,12 +187,14 @@ export function Orders({
   onSelect,
   onAsk,
   busy,
+  loading = false,
 }: {
   orders: Order[];
   selectedId?: string;
   onSelect: (id: string) => void;
   onAsk: (orderNumber: number, cancel: boolean) => void;
   busy: boolean;
+  loading?: boolean;
 }) {
   const compact = useCompactLayout();
   const [query, setQuery] = useState("");
@@ -210,6 +215,7 @@ export function Orders({
       <section className="orders-list-panel">
         <header>
           <h1>Meus pedidos</h1>
+          <PendingIndicator active={loading} label="Carregando pedidos…" />
           <span className="muted">{orders.length} pedidos</span>
         </header>
         <div className="search-field">
@@ -239,12 +245,12 @@ export function Orders({
           {filtered.map((order) => (
             <div key={order.orderId} className={`order-entry ${compact && showDetails && order.orderId === selected?.orderId ? "expanded" : ""}`}>
               <OrderSummary
-                order={order}
-                active={order.orderId === selected?.orderId}
-                onClick={() => {
-                  onSelect(order.orderId);
-                  setShowDetails(order.orderId === selected?.orderId ? !showDetails : true);
-                }}
+                  order={order}
+                  active={order.orderId === selected?.orderId}
+                  onClick={() => {
+                    onSelect(order.orderId);
+                    setShowDetails(order.orderId === selected?.orderId ? !showDetails : true);
+                  }}
               />
               {compact && showDetails && order.orderId === selected?.orderId && (
                 <OrderDetails

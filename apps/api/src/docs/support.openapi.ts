@@ -24,7 +24,7 @@ export const supportPaths = {
   '/customers': {
     post: {
       tags: ['Customers'], operationId: 'registerCustomer', summary: 'Cadastrar novo cliente demonstrativo e abrir sessão',
-      description: 'Cria cliente, três pedidos e sessão em uma transação. Não verifica posse do e-mail. E-mail duplicado nunca concede acesso à conta existente. Aceita somente application/json; cookies são definidos pelo servidor. O token de sessão não é retornado no JSON.',
+      description: 'Cria cliente, seis pedidos e sessão em uma transação. Não verifica posse do e-mail. E-mail duplicado nunca concede acesso à conta existente. Aceita somente application/json; cookies são definidos pelo servidor. O token de sessão não é retornado no JSON.',
       requestBody: { required: true, content: json('RegisterCustomer') },
       responses: {
         '201': {

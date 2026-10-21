@@ -5,6 +5,7 @@ import { AuthLayout } from "./AuthLayout";
 import { Registration } from "./Registration";
 import { PasswordField } from "./PasswordField";
 import { ErrorBanner } from "./ui";
+import { PendingIndicator } from './PendingIndicator';
 
 type Mode = "login" | "register" | "request" | "reset";
 export function Authentication({
@@ -198,6 +199,7 @@ export function Authentication({
           </>
         )}
         <button className="primary continue" disabled={disabled}>
+          <PendingIndicator active={disabled} compact />
           {disabled
             ? "Aguarde…"
             : mode === "login"
@@ -241,6 +243,7 @@ export function Authentication({
                   disabled={disabled || seconds > 0}
                   onClick={() => void perform(requestCode)}
                 >
+                  <PendingIndicator active={submitting} compact />
                   {seconds > 0
                     ? `Reenviar código em ${seconds}s`
                     : "Reenviar código"}

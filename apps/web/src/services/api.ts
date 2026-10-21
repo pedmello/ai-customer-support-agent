@@ -49,6 +49,13 @@ export function decisionMessage(
     confirmationId,
   };
 }
+export function isHandoffDecision(content: string) {
+  const text = content.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  return /^(sim(?:,? solicitar atendimento)?|nao(?:,? obrigado)?|confirmar atendimento humano|recusar atendimento humano)[.!]?$/.test(text);
+}
+export function handoffDecisionMessage(offerId: string, accept: boolean): SendMessage {
+  return { clientMessageId: crypto.randomUUID(), content: accept ? 'Sim, solicitar atendimento' : 'Não, obrigado', handoffOfferId: offerId };
+}
 export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
   let csrf: string | undefined;
   async function request<T>(

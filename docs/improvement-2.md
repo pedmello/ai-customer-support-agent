@@ -28,7 +28,7 @@ Foi criado backup completo em `.temp/support-improvement-2.dump`, ignorado pelo 
 
 | Método e rota | Entrada | Resultado |
 | --- | --- | --- |
-| `POST /customers` | `name`, `email`, `password`, `passwordConfirmation` | 201, cookie HttpOnly, cliente público, expiração e CSRF; três pedidos em transação |
+| `POST /customers` | `name`, `email`, `password`, `passwordConfirmation` | 201, cookie HttpOnly, cliente público, expiração e CSRF; seis pedidos em transação na versão atual, sem alterar contas anteriores |
 | `POST /sessions` | `email`, `password` | 201, nova sessão; nenhum pedido adicional |
 | `GET /sessions/current` | cookie | 200, cliente público, expiração e CSRF |
 | `DELETE /sessions/current` | cookie e CSRF | 204, revogação da sessão atual |
@@ -108,7 +108,7 @@ Os testes unitários e de frontend não fazem chamadas externas. Testes de integ
 
 | Objetivo | Cenário/condição | Resultado esperado |
 | --- | --- | --- |
-| Cadastro | senha válida, confirmação idêntica | hash Argon2id, sessão e exatamente três pedidos |
+| Cadastro | senha válida, confirmação idêntica | hash Argon2id, sessão e exatamente seis pedidos na versão atual |
 | Validação | ausente, curta, longa, confirmação diferente | 400, sem sessão |
 | Duplicação | mesmo e-mail com caixa/espaços diferentes | 409, sem conceder acesso |
 | Retorno | logout seguido de login | mesmos pedidos e conversas, sem novas compras |

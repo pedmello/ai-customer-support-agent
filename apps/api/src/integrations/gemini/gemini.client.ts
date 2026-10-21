@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import type { Logger } from 'pino';
+import { requestCorrelation } from '../../config/operation-log.js';
 import { AiFailure, providerIntentSchema, type IntentModel } from '../ai/intent-model.js';
 import { AGENT_SYSTEM_PROMPT } from '../openai/agent.prompt.js';
 
@@ -53,7 +54,7 @@ export function createGeminiModel(options: { apiKey?: string; model: string; tim
             try { value = JSON.parse(response.text); } catch { throw new AiFailure('AI_INVALID_RESPONSE'); }
             const parsed = providerIntentSchema.safeParse(value);
             if (!parsed.success) throw new AiFailure('AI_INVALID_RESPONSE');
-            options.logger.info({ integration: 'gemini', provider: 'gemini', model: options.model, attempt,
+            options.logger.info({ requestId: requestCorrelation.getStore(), integration: 'gemini', provider: 'gemini', model: options.model, attempt,
               durationMs: Date.now() - attemptStarted, totalDurationMs: Date.now() - started, category: 'SUCCESS' }, 'Intent interpretation completed');
             return parsed.data;
           } catch (error) {
@@ -61,9 +62,10 @@ export function createGeminiModel(options: { apiKey?: string; model: string; tim
             const retry = attempt === 1 && !signal.aborted && [502, 503, 504].includes(failure.status ?? 0) &&
               Date.now() - started + 250 < options.timeoutMs;
             // Only allowlisted metadata; never SDK messages, headers, prompts or raw errors.
-            options.logger.warn({ integration: 'gemini', provider: 'gemini', model: options.model, attempt,
+            // The logger redacts any "code" key (recovery codes), so the safe AI code uses failureCode.
+            options.logger.warn({ requestId: requestCorrelation.getStore(), integration: 'gemini', provider: 'gemini', model: options.model, attempt,
               durationMs: Date.now() - attemptStarted, totalDurationMs: Date.now() - started,
-              ...failure, retry }, 'Intent interpretation failed');
+              category: failure.category, status: failure.status, failureCode: failure.code, result: failure.code, retry }, 'Intent interpretation failed');
             if (!retry) throw new AiFailure(failure.code);
             // Retry only inference; the orchestrator has not executed any database operation.
             await new Promise<void>((resolve) => {

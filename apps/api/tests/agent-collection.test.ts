@@ -5,6 +5,15 @@ import type { AgentIntent } from '../src/integrations/ai/intent-model.js';
 import { demoOrders } from '../src/modules/customers/customer.service.js';
 
 describe('deterministic collection interpretation and totals', () => {
+  it.each(['Quais pedidos foram entregues?', 'Quais pedidos são de ontem?', 'Quantos pedidos estão pagos?',
+    'Quais pedidos enviados chegaram ontem?', 'Quais pedidos deste mês?', 'Quais pedidos têm frete grátis?'])('does not discard unsupported criteria: %s', content => {
+    expect(collectionQuery(content)).toBeNull();
+    expect(queryFromPlan({ intent: 'ORDER_COLLECTION', orderId: null, orderNumber: null, opening: 'NONE',
+      collectionPlan: { operation: 'LIST', selection: null, statusFilter: null } }, content)).toBeNull();
+  });
+  it('defers unfamiliar qualifiers instead of treating every plural question as a full list', () => {
+    expect(collectionQuery('Quais pedidos são especiais?')).toBeNull();
+  });
   it.each([
     ['Quais são meus pedidos?', 'list', undefined], ['Quantos pedidos eu tenho?', 'count', undefined],
     ['Quais estão em processamento?', 'list', 'PROCESSING'], ['Tenho algum pedido enviado?', 'list', 'SHIPPED'],

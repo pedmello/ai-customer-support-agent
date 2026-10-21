@@ -1,7 +1,8 @@
-import { pino, type LoggerOptions } from 'pino';
+import { pino, type DestinationStream, type LoggerOptions } from 'pino';
 
-export function createLogger(level = 'info') {
-  return pino({
+// The optional destination lets tests inspect the production redaction configuration.
+export function createLogger(level = 'info', destination?: DestinationStream) {
+  const options = {
     level,
     base: { service: 'support-api' },
     redact: {
@@ -17,5 +18,6 @@ export function createLogger(level = 'info') {
         type: error instanceof Error ? error.name : 'UnknownError',
       }),
     },
-  } satisfies LoggerOptions);
+  } satisfies LoggerOptions;
+  return destination ? pino(options, destination) : pino(options);
 }

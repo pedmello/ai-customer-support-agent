@@ -121,7 +121,9 @@ export function Chat({
   const nearBottom = useRef(true);
   const history = support.history;
   const outgoing = support.sending ?? support.retry?.input;
-  useEffect(() => {
+  // Layout effect: the reset commits with the newly selected conversation. A passive effect could
+  // run after the composer became visible and erase text the customer had already typed.
+  useLayoutEffect(() => {
     setDraft("");
     nearBottom.current = true;
     scroll.current?.scrollTo({ top: scroll.current.scrollHeight });

@@ -1,11 +1,12 @@
+import { responseExamples, errorExample } from './response-examples.js';
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
-const json = (name: string) => ({ 'application/json': { schema: ref(name) } });
-const error = (description: string) => ({ description, content: json('Error') });
+const json = (name: string) => ({ 'application/json': { schema: ref(name), ...(responseExamples[name] ? { example: responseExamples[name] } : {}) } });
+const error = (description: string) => ({ description, content: { 'application/json': { schema: ref('Error'), example: errorExample(description) } } });
 const authenticated = [{ cookieSession: [] }, { secureCookieSession: [] }];
 const mutationSecurity = [{ cookieSession: [], csrfToken: [] }, { secureCookieSession: [], csrfToken: [] }];
 const protectedErrors = {
   '401': error('Sessão ausente, inválida, revogada ou expirada: UNAUTHENTICATED'),
-  '403': error('Origem não permitida ou token CSRF inválido'),
+  '403': error('ORIGIN_NOT_ALLOWED ou CSRF_INVALID'),
   '500': error('Erro inesperado: INTERNAL_ERROR; nenhum detalhe interno é exposto'),
   '503': error('Banco indisponível: DATABASE_UNAVAILABLE'),
 };
@@ -37,6 +38,7 @@ export const supportPaths = {
         '409': error('EMAIL_ALREADY_REGISTERED; nenhuma sessão é emitida'),
         '413': error('PAYLOAD_TOO_LARGE'),
         '415': error('UNSUPPORTED_MEDIA_TYPE; use application/json'),
+        '429': error('AUTH_RATE_LIMITED: limite persistente de cadastro por origem; aguarde antes de tentar novamente'),
         '500': protectedErrors['500'], '503': protectedErrors['503'],
       },
     },

@@ -1,5 +1,7 @@
 # Etapa 3.1 — Provedores OpenAI e Gemini
 
+> Documento com resultados históricos por rodada. Contrato atual: [funcionamento atual](current-behavior.md) e [planos coletivos](collective-query-plans.md). Falhas oferecem atendimento, sem registro automático.
+
 **Estado atualizado após revisão pontual: validação real ponta a ponta concluída.** Os seis cenários solicitados passaram com Gemini real, e a Fake Store respondeu normalmente. O 504 anterior foi localizado na comunicação HTTPS de saída, sem evidência suficiente para distinguir serviço Gemini de gateway externo. Veja a revisão final ao fim deste documento; as seções anteriores preservam o histórico das verificações.
 
 ## Estado e configuração local
@@ -15,7 +17,7 @@ GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_TIMEOUT_MS=10000
 ```
 
-O exemplo seleciona Gemini para a demonstração. O default do validador, quando AI_PROVIDER está ausente, continua `openai` para preservar instalações anteriores. Para voltar ao provedor alternativo, use `AI_PROVIDER=openai` e configure OPENAI_API_KEY/OPENAI_MODEL. Não há fallback automático entre empresas: isso evita enviar dados a um provedor diferente do selecionado sem uma decisão explícita.
+O exemplo seleciona Gemini para a demonstração. O default do validador, quando AI_PROVIDER está ausente, continua `openai` para preservar instalações anteriores executadas no host. No Docker Compose, a variável ausente resulta em `gemini`, alinhado ao `.env.example`. Para voltar ao provedor alternativo, use `AI_PROVIDER=openai` e configure OPENAI_API_KEY/OPENAI_MODEL. Não há fallback automático entre empresas: isso evita enviar dados a um provedor diferente do selecionado sem uma decisão explícita.
 
 `apps/api/src/config/env.ts` resolve `../../../../.env` a partir do próprio módulo, tanto em `src/config` quanto em `dist/config`. Portanto, lê o `.env` da raiz independentemente do diretório atual. `dotenv` não sobrescreve variáveis já presentes no processo.
 
@@ -62,8 +64,8 @@ Leia nesta ordem, após o [guia do agente](code-walkthrough-stage-3.md):
 3. Uma requisição de mensagem atravessa as rotas/middlewares/controllers existentes e chega a `agent.orchestrator.ts`, método `send`.
 4. `plan` remove dados sensíveis, limita o histórico e chama `model.interpret`.
 5. O adaptador envia AGENT_SYSTEM_PROMPT em `systemInstruction`. Histórico e mensagem atual ficam em um objeto JSON no conteúdo de usuário, como dados não confiáveis.
-6. `z.toJSONSchema(intentSchema, { target: 'draft-7' })` gera o schema enviado em `responseJsonSchema`; `responseMimeType` exige JSON. Não existem tools, nem acesso do modelo ao PostgreSQL.
-7. Ao receber a resposta, interpret exige uma candidata com finishReason=STOP, sem bloqueio e com texto. `JSON.parse` transforma texto em objeto; `intentSchema.safeParse` valida campos, enums e rejeita propriedades extras. JSON Schema orienta o provedor; Zod verifica novamente dentro da aplicação.
+6. `z.toJSONSchema(providerIntentSchema, { target: 'draft-7' })` gera o schema enviado em `responseJsonSchema`; `responseMimeType` exige JSON. Não existem tools, nem acesso do modelo ao PostgreSQL.
+7. Ao receber a resposta, interpret exige uma candidata com finishReason=STOP, sem bloqueio e com texto. `JSON.parse` transforma texto em objeto; `providerIntentSchema.safeParse` valida campos, enums e rejeita propriedades extras. JSON Schema orienta o provedor; Zod verifica novamente dentro da aplicação.
 8. O orquestrador valida a intenção novamente e chama os serviços de domínio. Somente esses serviços autorizam consultas ou alterações.
 
 Limites Gemini: 1024 tokens de saída, uma candidata e prazo total de 10 segundos por padrão (30 segundos no `.env` local usado na validação). Após a revisão, somente HTTP 502/503/504 permitem uma repetição, após 250 ms e dentro do mesmo prazo total. O SDK permanece com uma tentativa própria, evitando multiplicação de retries. O AbortController compartilhado cancela a requisição no prazo; o timer é liberado em finally. Não há repetição em autenticação, cota/429, JSON inválido ou prazo total esgotado. A continuação automática do SDK fica desligada. Saídas incompletas, bloqueadas ou inválidas viram AI_INVALID_RESPONSE; timeout local e HTTP 408/504 viram AI_TIMEOUT; as demais falhas preservam AI_UNAVAILABLE. A causa externa bruta não é devolvida nem registrada. O encaminhamento humano continua simulado.
@@ -127,7 +129,7 @@ Naquela execução ficou pendente repetir o fluxo completo. Essa pendência foi 
 
 ### Diagnóstico e limites da conclusão
 
-O HTTP 504 anterior foi capturado na resposta HTTPS de saída para o SDK Gemini, não na resposta HTTP da aplicação. O orquestrador converte falhas da IA em um turno persistido e resposta conversacional HTTP 200 com código de erro e encaminhamento simulado. Não existe código que gere 504 nesse caminho. O serviço web Nginx não participa dessa chamada: o teste acessa diretamente a API Express na porta 3000.
+O HTTP 504 anterior foi capturado na resposta HTTPS de saída para o SDK Gemini, não na resposta HTTP da aplicação. O orquestrador converte falhas da IA em turno persistido e resposta conversacional HTTP 200 com código de falha. No fluxo atual, isso oferece atendimento humano sem registrar encaminhamento automaticamente. Não existe código que gere 504 nesse caminho. O serviço web Nginx não participa dessa chamada: o teste acessa diretamente a API Express na porta 3000.
 
 No container, DNS para generativelanguage.googleapis.com resolveu IPv4. Não havia HTTP_PROXY, HTTPS_PROXY, ALL_PROXY ou NODE_USE_ENV_PROXY configurados. O Compose mantém a rede bridge padrão, sem proxy de saída próprio. A consulta autenticada de metadados levou 418 ms e confirmou `models/gemini-3.5-flash-lite` com generateContent. O suporte a JSON Schema foi conferido no [guia oficial](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) e comprovado pelos cinco resultados reais validados pelo Zod nesta rodada.
 

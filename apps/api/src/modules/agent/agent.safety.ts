@@ -40,7 +40,9 @@ export function resolveOrderReference(content: string, proposedNumber: number | 
     const number = numbers[0]!;
     const explicit = new RegExp(`(?:#|\\bpedido\\s*(?:n[ºo°.]?\\s*)?#?)\\s*${number}\\b`, 'i').test(content)
       || new RegExp(`^\\s*#?${number}\\s*[?.!]?\\s*$`).test(content)
-      || new RegExp(`\\b(?:cancelar|consultar)\\s+${number}\\b`, 'i').test(content);
+      || new RegExp(`\\b(?:cancelar|consultar)\\s+${number}\\b`, 'i').test(content)
+      // "comprei no 10000", "os itens do 10000": a preposition right before the number refers to an order.
+      || new RegExp(`\\b(?:no|do|n[ºo°]|n[uú]mero)\\s*#?${number}\\b`, 'i').test(content);
     return explicit ? { kind: 'number', orderNumber: number } : { kind: 'invalid' };
   }
   if (candidates.length || proposedNumber !== null) return { kind: 'invalid' };

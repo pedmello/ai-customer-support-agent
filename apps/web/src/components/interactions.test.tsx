@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
 import { Orders } from "./Orders";
 import { useSupport } from "../hooks/useSupport";
@@ -58,6 +59,39 @@ beforeAll(() =>
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+describe("Rascunho ao selecionar conversa", () => {
+  // Reproduces the real ordering without act(): the selection commits from a resolved promise and the
+  // customer types before React's scheduler runs passive effects. The draft reset must not erase that text.
+  it("preserva o texto digitado logo após a conversa ser selecionada", async () => {
+    const previous = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    try {
+      const client = clientWithHistory({ ...history, state: "ACTIVE", pendingConfirmation: null });
+      const selected = new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (!container.querySelector(".chat-heading h1")?.textContent?.includes("Conversa de")) return;
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(container, { childList: true, subtree: true, characterData: true });
+      });
+      root.render(<Harness client={client} />);
+      await selected;
+      const field = container.querySelector("textarea")!;
+      // Native input event, as a browser emits it, without act() flushing pending effects first.
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "Consultar meu pedido");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(field.value).toBe("Consultar meu pedido");
+    } finally {
+      root.unmount();
+      container.remove();
+      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = previous;
+    }
+  });
 });
 describe("Interações de confirmação e pedidos", () => {
   it('grows the composer to its cap, shrinks after clearing and preserves multiline keyboard input', async () => {

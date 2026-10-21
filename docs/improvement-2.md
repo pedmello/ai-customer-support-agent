@@ -1,5 +1,7 @@
 # Implementação 2 — Cadastro, login e recuperação
 
+> Registro da implementação original. Veja [funcionamento atual](current-behavior.md). Pendências e resultados abaixo se referem àquela rodada, não ao ambiente de cada avaliador.
+
 ## Escopo e compatibilidade
 
 Cadastro com senha e confirmação, login, logout e recuperação por código enviado via Resend. Pedidos continuam fictícios. Cadastro não verifica posse do e-mail; apenas uma recuperação bem-sucedida registra `emailVerifiedAt`. Contas antigas foram preservadas, sem senha inventada, exclusão ou alteração de pedidos/conversas. Para ativá-las, o proprietário precisa receber e apresentar um código válido.
@@ -98,7 +100,7 @@ Nesta execução, as variáveis ausentes foram acrescentadas ao `.env` local sem
 
 Sem configuração, `EMAIL_PROVIDER=disabled` mantém cadastro e login operantes. A solicitação de recuperação continua genérica e não envia e-mail. Configuração incompleta com `resend` impede inicialização e informa somente nomes das variáveis inválidas.
 
-O client chama a API HTTPS oficial com `fetch`, timeout e chave de idempotência por desafio, isolado pela interface `EmailClient`. Resposta de aceitação não comprova entrega na caixa; não implementamos webhook de entrega. A validação real de envio **está pendente**, pois credenciais/remetente não foram configurados nesta implementação.
+O client chama a API HTTPS oficial com `fetch`, timeout e chave de idempotência por desafio, isolado pela interface `EmailClient`. Resposta de aceitação não comprova entrega na caixa; não implementamos webhook de entrega. Na rodada original, a entrega real ficou pendente. Posteriormente, o usuário confirmou recebimento do código via Resend e conclusão da redefinição pela interface. Esse relato não representa novo teste nesta revisão nem comprova sozinho todos os cenários de login/revogação. Cada avaliador configura suas próprias credenciais/remetente.
 
 Fontes consultadas em 20/10/2026: [envio via API](https://resend.com/docs/api-reference/emails/send-email), [domínios verificados](https://resend.com/docs/dashboard/domains/introduction), [limites](https://resend.com/docs/knowledge-base/account-quotas-and-limits), [Argon2id/OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html). Na documentação consultada, o plano gratuito transacional tinha 100 e-mails/dia e 3.000/mês, incluindo envios/recebimentos; confirme cotas no painel antes do uso.
 

@@ -10,6 +10,7 @@ import { createHealthRouter } from './modules/health/health.routes.js';
 import type { CheckDatabase } from './modules/health/health.service.js';
 import { createSupportRouter, type SupportDependencies } from './modules/support.routes.js';
 import { browserSecurity } from './middlewares/browser-security.js';
+import { requestCorrelation } from './config/operation-log.js';
 
 interface AppDependencies {
   checkDatabase: CheckDatabase;
@@ -32,11 +33,12 @@ export function createApp({ checkDatabase, logger = createLogger('silent'), supp
       res: (res) => ({ statusCode: res.statusCode }),
     },
   }));
+  app.use((req, _res, next) => requestCorrelation.run(String(req.id), next));
   app.use(helmet({ contentSecurityPolicy: { directives: { upgradeInsecureRequests: null } } }));
   if (support) app.use(['/customers', '/sessions', '/orders', '/conversations', '/handoffs', '/password-recovery'], browserSecurity(support.allowedOrigins));
   app.use(express.json({ limit: '16kb' }));
   app.use(createHealthRouter(checkDatabase));
-  if (support) app.use(createSupportRouter(support));
+  if (support) app.use(createSupportRouter({ ...support, agent: support.agent ? { ...support.agent, logger } : undefined }));
   app.get('/openapi.json', (_req, res) => res.json(openapi));
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi, {
     swaggerOptions: { validatorUrl: null, withCredentials: true, persistAuthorization: false },

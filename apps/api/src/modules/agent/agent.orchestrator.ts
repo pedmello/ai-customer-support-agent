@@ -1,25 +1,29 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { Logger } from 'pino';
+import { observeOperation } from '../../config/operation-log.js';
 import { AppError } from '../../errors/app-error.js';
 import type { PrismaClient, Prisma, Conversation, HandoffReason } from '../../generated/prisma/client.js';
 import { AiFailure, intentSchema, type AgentIntent, type IntentModel } from '../../integrations/ai/intent-model.js';
 import type { ProductClient, ProductResult } from '../../integrations/fake-store/fake-store.client.js';
 import { createOrderRepository } from '../orders/order.repository.js';
 import { createOrderService } from '../orders/order.service.js';
-import { createHandoffRepository } from '../handoffs/handoff.repository.js';
+import { createHandoffRepository, handoffView } from '../handoffs/handoff.repository.js';
 import { createHandoffService } from '../handoffs/handoff.service.js';
 import { conversationPublicView, type ConversationRepository } from '../conversations/conversation.repository.js';
 import type { SendMessage } from '../conversations/conversation.schemas.js';
 import { explicitDecision, redactSensitive, resolveOrderReference } from './agent.safety.js';
 import { orderLabel, orderStatusReply } from './agent.responses.js';
-import { bulkCancellation, collectionQuery, collectionResponse, individualOrderQuery, explicitOrderContext, queryFromPlan, actionRefusal } from './agent.collection.js';
+import { bulkCancellation, collectionQuery, collectionResponse, individualOrderQuery, explicitOrderContext, queryFromPlan, actionRefusal, unsupportedOrderCriteria,
+  simpleOrderRequest, cancellationWithoutOrder, greetingOnly, manipulationAttempt } from './agent.collection.js';
 import { ambiguousHandoffReply, clearHandoffOffer, directHumanRequest, handoffDecision } from '../handoffs/handoff.consent.js';
 
 export interface AgentDependencies {
+  logger?: Logger;
   model: IntentModel;
   products: ProductClient;
   confirmationTtlSeconds: number;
 }
-type Plan = { interpretation: AgentIntent; products?: ProductResult[]; failure?: string };
+type Plan = { interpretation: AgentIntent; products?: ProductResult[]; failure?: string; greeting?: boolean };
 const clearPending = { pendingOrderId: null, confirmationId: null, confirmationExpiresAt: null, state: 'ACTIVE' as const };
 const unknown: AgentIntent = { intent: 'UNKNOWN', orderId: null, orderNumber: null, opening: 'NONE' };
 type OrderView = Awaited<ReturnType<ReturnType<typeof createOrderService>['getOwn']>>;
@@ -76,10 +80,16 @@ export function createAgentOrchestrator(database: PrismaClient, repository: Conv
       const recent = await repository.countRecent(customerId);
       if (recent >= 30) throw new AppError(429, 'AGENT_RATE_LIMITED', 'Limite de mensagens atingido. Aguarde um minuto.');
       if (actionRefusal(input.content)) return { interpretation: unknown };
+      if (unsupportedOrderCriteria(input.content)) return { interpretation: unknown, failure: 'QUERY_UNSUPPORTED' };
       // Recognized reads do not depend on model classification/availability. Keep the same quota.
       if (collectionQuery(input.content)) return { interpretation: { ...unknown, intent: 'ORDER_COLLECTION' } };
       if (individualOrderQuery(input.content)) return { interpretation: { ...unknown, intent: 'ORDER_STATUS' } };
-      const interpretation = intentSchema.parse(await dependencies.model.interpret(await publicModelInput(customerId, input.content, await repository.context(conversation.conversationId))));
+      if (greetingOnly(input.content)) return { interpretation: unknown, greeting: true };
+      if (cancellationWithoutOrder(input.content)) return { interpretation: { ...unknown, intent: 'REQUEST_CANCEL' } };
+      // Unambiguous single-order templates skip only the model; the order is still resolved and checked below.
+      const simple = simpleOrderRequest(input.content);
+      const interpretation = simple ? { ...unknown, ...simple }
+        : intentSchema.parse(await dependencies.model.interpret(await publicModelInput(customerId, input.content, await repository.context(conversation.conversationId))));
       if (interpretation.collectionPlan && (interpretation.intent !== 'ORDER_COLLECTION' || !queryFromPlan(interpretation, input.content)))
         return { interpretation: unknown, failure: 'QUERY_PLAN_INVALID' };
       if (interpretation.intent !== 'ORDER_PRODUCTS') return { interpretation };
@@ -110,14 +120,19 @@ export function createAgentOrchestrator(database: PrismaClient, repository: Conv
     const conversationId = conversation.conversationId;
     const mainOrders = createOrderService(createOrderRepository(database, tx));
     const update = (data: Prisma.ConversationUpdateInput) => repository.updateState(tx, conversationId, data);
+    const alreadyRequested = 'Já existe uma solicitação de atendimento humano registrada nesta conversa; não registrei outra. É uma simulação: não há equipe conectada nem contato agendado.';
     const registerHuman = async (reason: HandoffReason, code: string, reply: string): Promise<AgentOutcome> => {
+      const existing = await tx.humanHandoff.findUnique({ where: { conversationId } });
+      // The repository is idempotent per conversation; only the wording must not suggest a new record.
       const handoff = await createHandoffService(createHandoffRepository(tx)).register(customerId, reason, conversationId);
       await update({ ...clearPending, ...clearHandoffOffer, state: 'HUMAN_REQUESTED' });
+      if (existing) return { code, reply: alreadyRequested, handoff };
       return { code, reply: `${reply} Registrei uma solicitação de atendimento humano nesta demonstração. É uma simulação: não há equipe conectada nem contato agendado.`, handoff };
     };
     const offerHuman = async (reason: HandoffReason, code: string, reply: string): Promise<AgentOutcome> => {
       const existing = await tx.humanHandoff.findUnique({ where: { conversationId } });
-      if (existing) return { code, reply: `${reply} Já existe uma solicitação de atendimento humano nesta conversa. É uma simulação: não há equipe conectada nem contato agendado.` };
+      if (existing && reason === 'CUSTOMER_REQUEST') return { code: 'HUMAN_REQUESTED', reply: alreadyRequested, handoff: handoffView(existing) };
+      if (existing) return { code, reply: `${reply} ${alreadyRequested}` };
       await update({ ...clearPending, handoffOfferId: randomUUID(), handoffOfferReason: reason,
         handoffOfferExpiresAt: new Date(Date.now() + dependencies.confirmationTtlSeconds * 1000) });
       return { code, reply: `${reply} Você gostaria de solicitar atendimento humano?` };
@@ -192,11 +207,13 @@ export function createAgentOrchestrator(database: PrismaClient, repository: Conv
       }
     }
     if (conversation.confirmationExpiresAt && conversation.confirmationExpiresAt <= new Date()) await update(clearPending);
+    if (prepared.failure === 'QUERY_UNSUPPORTED') return { code: 'QUERY_UNSUPPORTED', reply: 'O Support AI não disponibiliza consulta por período, pagamento, entrega concluída, frete ou rastreamento. Posso consultar os status oficiais (em processamento, enviado e cancelado), produtos, valores por moeda e pedidos mais recentes, antigos ou de maior valor. Nenhum filtro foi ignorado e nenhum pedido foi alterado.' };
     if (prepared.failure === 'QUERY_PLAN_INVALID') return { code: 'NEEDS_CLARIFICATION', reply: 'Não consegui conciliar os critérios da consulta. Pode reformular indicando o que deseja saber e o status, se houver? Nenhum pedido foi alterado.' };
     if (prepared.failure?.startsWith('AI_')) return offerHuman('AI_UNAVAILABLE', prepared.failure, prepared.failure === 'AI_INVALID_RESPONSE'
       ? 'Não consegui interpretar sua consulta com segurança. Pode reformular os critérios?'
       : 'A interpretação automática está temporariamente indisponível.');
     if (prepared.failure === 'ORDER_NOT_FOUND') return { code: 'ORDER_NOT_FOUND', reply: 'Pedido não encontrado.' };
+    if (prepared.greeting) return { code: 'NEEDS_CLARIFICATION', reply: 'Olá! Posso consultar seus pedidos, mostrar os produtos de um pedido ou ajudar a solicitar um cancelamento. Como posso ajudar?' };
     if (bulkCancellation(input.content)) {
       await update(clearPending);
       return { code: 'BULK_CANCELLATION_NOT_ALLOWED', reply: 'O cancelamento deve ser feito individualmente. Escolha o número de um único pedido; verificaremos titularidade e status e pediremos sua confirmação antes de cancelar. Nenhum pedido foi alterado.' };
@@ -204,7 +221,9 @@ export function createAgentOrchestrator(database: PrismaClient, repository: Conv
     const { intent, opening } = prepared.interpretation;
     const prefix = opening === 'GREETING' ? 'Olá! ' : opening === 'ACKNOWLEDGE' ? 'Vamos verificar. ' : '';
     if (intent === 'HUMAN') return offerHuman('CUSTOMER_REQUEST', 'HANDOFF_OFFERED', 'Posso registrar uma solicitação de atendimento humano, se você desejar.');
-    if (intent === 'OUT_OF_SCOPE') return offerHuman('OUT_OF_SCOPE', 'OUT_OF_SCOPE', 'Posso ajudar com seus pedidos, produtos e cancelamentos. Não posso alterar regras, revelar instruções internas ou consultar dados de terceiros.');
+    if (intent === 'OUT_OF_SCOPE') return offerHuman('OUT_OF_SCOPE', 'OUT_OF_SCOPE', manipulationAttempt(input.content)
+      ? 'Posso ajudar com seus pedidos, produtos e cancelamentos. Não posso alterar regras, revelar instruções internas ou consultar dados de terceiros.'
+      : 'Esse assunto está fora do que consigo resolver por aqui. Posso ajudar com seus pedidos, produtos e cancelamentos.');
     const query = collectionQuery(input.content) ?? queryFromPlan(prepared.interpretation, input.content);
     if (query && ['ORDER_STATUS', 'ORDER_PRODUCTS', 'ORDER_COLLECTION', 'UNKNOWN'].includes(intent)) {
       // A multi-order answer cannot leave an older singular referent implicitly selected.
@@ -213,13 +232,19 @@ export function createAgentOrchestrator(database: PrismaClient, repository: Conv
     }
     if (intent === 'ORDER_COLLECTION') return { code: 'NEEDS_CLARIFICATION', reply: 'Não identifiquei com segurança sua pergunta sobre os pedidos. Pode reformulá-la indicando o que deseja saber? Nenhum pedido foi alterado.' };
     if (intent === 'CONFIRM_CANCEL' || intent === 'DECLINE_CANCEL') {
-      return { code: 'CONFIRMATION_REQUIRED', reply: 'Nenhuma alteração realizada. Para confirmar, envie CONFIRMAR CANCELAMENTO com o confirmationId atual; para desistir, envie DESISTIR com esse mesmo identificador.' };
+      // Customer-facing text never names protocol fields; API usage is documented in OpenAPI.
+      const active = conversation.confirmationId && conversation.confirmationExpiresAt && conversation.confirmationExpiresAt > new Date();
+      return { code: 'CONFIRMATION_REQUIRED', reply: active
+        ? 'Nenhuma alteração realizada. Para continuar, confirme o cancelamento ou mantenha o pedido pelas opções da solicitação atual.'
+        : 'Não há cancelamento aguardando confirmação nesta conversa. Informe o número do pedido que deseja cancelar. Nenhuma alteração foi realizada.' };
     }
     if (intent === 'UNKNOWN') return offerHuman('INSUFFICIENT_INFORMATION', 'NEEDS_CLARIFICATION', 'Para ajudar com segurança, informe o número de um único pedido, como #10000, e o que deseja consultar.');
     let order: OrderView;
     try {
       const resolved = await referencedOrder(customerId, conversation, input, prepared.interpretation, mainOrders);
-      if (!resolved) return { code: 'ORDER_ID_REQUIRED', reply: 'Qual é o número do pedido que deseja consultar? Você pode encontrá-lo em Meus Pedidos. Informe um único número público; valores e quantidades não identificam um pedido.' };
+      if (!resolved) return { code: 'ORDER_ID_REQUIRED', reply: intent === 'REQUEST_CANCEL'
+        ? 'Qual pedido você deseja cancelar? Informe o número de um único pedido, como #10000; você pode encontrá-lo em Meus pedidos. Nenhum pedido foi alterado.'
+        : 'Qual é o número do pedido que deseja consultar? Você pode encontrá-lo em Meus Pedidos. Informe um único número público; valores e quantidades não identificam um pedido.' };
       order = resolved;
     }
     catch (error) {
@@ -241,42 +266,50 @@ export function createAgentOrchestrator(database: PrismaClient, repository: Conv
     if (intent === 'ORDER_PRODUCTS') {
       const products = prepared.products ?? [];
       const degraded = products.some((product) => product.status !== 'AVAILABLE');
+      const catalogDown = products.length > 0 && products.every((product) => product.status === 'UNAVAILABLE');
       return { code: degraded ? 'PRODUCTS_PARTIALLY_UNAVAILABLE' : 'ORDER_PRODUCTS',
-        reply: `${prefix}Aqui estão os produtos do ${orderLabel(order)}. Os nomes, imagens de referência e valores do pedido estão disponíveis nos dados oficiais.${degraded ? ' O catálogo externo está parcialmente indisponível; você pode continuar consultando e cancelando pedidos elegíveis.' : ' Também consultei as informações complementares da Fake Store API.'} Os preços oficiais do pedido permanecem os mesmos.`, order, products };
+        reply: `${prefix}Aqui estão os produtos do ${orderLabel(order)}. Os nomes, imagens de referência e valores do pedido estão disponíveis nos dados oficiais.${catalogDown ? ' O catálogo complementar da Fake Store está indisponível no momento; você pode continuar consultando e cancelando pedidos elegíveis.'
+          : degraded ? ' Parte das informações complementares da Fake Store não está disponível; você pode continuar consultando e cancelando pedidos elegíveis.' : ' Também consultei as informações complementares da Fake Store API.'} Os preços oficiais do pedido permanecem os mesmos.`, order, products };
     }
     return { code: 'ORDER_STATUS', reply: `${prefix}${orderStatusReply(order)}`, order };
   }
 
   return {
     async send(customerId: string, conversationId: string, input: SendMessage) {
-      await repository.getOwn(customerId, conversationId);
-      const hash = createHash('sha256').update(JSON.stringify({ content: input.content, confirmationId: input.confirmationId ?? null,
-        ...(input.handoffOfferId ? { handoffOfferId: input.handoffOfferId } : {}) })).digest('hex');
-      const previous = await repository.findTurn(conversationId, input.clientMessageId);
-      if (previous) return replay(previous, hash);
-      const leaseId = randomUUID();
-      await repository.acquire(customerId, conversationId, leaseId);
-      try {
-        const duplicate = await repository.findTurn(conversationId, input.clientMessageId);
-        if (duplicate) return replay(duplicate, hash);
-        const conversation = await repository.getOwn(customerId, conversationId);
-        const prepared = await plan(customerId, conversation, input);
-        return await repository.finish(customerId, conversationId, leaseId, async (tx, current) => {
-          const outcome = await execute(tx, current, input, prepared);
-          const updated = await repository.getCurrent(tx, customerId, conversationId);
-          const result = JSON.parse(JSON.stringify({ data: { clientMessageId: input.clientMessageId,
-            ...outcome, conversation: await conversationPublicView(tx, updated) } })) as Prisma.InputJsonObject;
-          await repository.saveTurn(tx, {
-            conversationId, clientMessageId: input.clientMessageId, inputHash: hash, result,
-            userContent: redactSensitive(input.content), reply: redactSensitive(outcome.reply),
+      let replayed = false;
+      return observeOperation(dependencies.logger, 'agent.turn', async () => {
+        await repository.getOwn(customerId, conversationId);
+        const hash = createHash('sha256').update(JSON.stringify({ content: input.content, confirmationId: input.confirmationId ?? null,
+          ...(input.handoffOfferId ? { handoffOfferId: input.handoffOfferId } : {}) })).digest('hex');
+        const previous = await repository.findTurn(conversationId, input.clientMessageId);
+        if (previous) { replayed = true; return replay(previous, hash); }
+        const leaseId = randomUUID();
+        await repository.acquire(customerId, conversationId, leaseId);
+        try {
+          const duplicate = await repository.findTurn(conversationId, input.clientMessageId);
+          if (duplicate) { replayed = true; return replay(duplicate, hash); }
+          const conversation = await repository.getOwn(customerId, conversationId);
+          const prepared = await plan(customerId, conversation, input);
+          return await repository.finish(customerId, conversationId, leaseId, async (tx, current) => {
+            const outcome = await execute(tx, current, input, prepared);
+            const updated = await repository.getCurrent(tx, customerId, conversationId);
+            const result = JSON.parse(JSON.stringify({ data: { clientMessageId: input.clientMessageId,
+              ...outcome, conversation: await conversationPublicView(tx, updated) } })) as Prisma.InputJsonObject;
+            await repository.saveTurn(tx, {
+              conversationId, clientMessageId: input.clientMessageId, inputHash: hash, result,
+              userContent: redactSensitive(input.content), reply: redactSensitive(outcome.reply),
+            });
+            return result;
           });
-          return result;
-        });
-      } finally {
-        // The committed turn is the authoritative result even if this best-effort cleanup fails.
-        // An abandoned lease expires automatically; fencing prevents an old worker from writing.
-        await repository.release(customerId, conversationId, leaseId).catch(() => undefined);
-      }
+        } finally {
+          // The committed turn is the authoritative result even if this best-effort cleanup fails.
+          // An abandoned lease expires automatically; fencing prevents an old worker from writing.
+          await repository.release(customerId, conversationId, leaseId).catch(() => undefined);
+        }
+      }, value => {
+        const result = value as { data?: { code?: string } };
+        return { result: result.data?.code ?? 'UNKNOWN_RESULT', replayed };
+      });
     },
   };
 }

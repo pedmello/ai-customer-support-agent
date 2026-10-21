@@ -2,6 +2,8 @@
 
 **Atualização do fluxo humano:** ofertas agora exigem consentimento explícito antes do registro. O comportamento atual, o protocolo, os arquivos e as validações estão em [human-handoff-consent.md](human-handoff-consent.md). As seções de entrega abaixo documentam a etapa original; o prompt integral permanece sincronizado com o usado em execução.
 
+> Registro histórico da Etapa 3 (19/10/2026). Para o contrato vigente, leia [funcionamento atual](current-behavior.md), [planos coletivos](collective-query-plans.md) e [consentimento humano](human-handoff-consent.md). O prompt abaixo permanece sincronizado com o código atual.
+
 ## Escopo e decisões
 
 A Etapa 3 acrescenta conversas, mensagens, estado persistido, interpretação de intenções pela OpenAI, informações complementares da Fake Store e encaminhamento humano simulado. As camadas Express e os contratos de clientes, sessões e pedidos foram preservados. Não há chat React, histórico de terceiros, login, verificação de e-mail, recuperação de conta ou integração com equipe real.
@@ -20,8 +22,8 @@ O endpoint REST `POST /orders/{orderId}/cancel` continua sendo uma operação di
 - Saída: `intent`, `orderId` ou null, e `opening` (GREETING, ACKNOWLEDGE, NONE).
 - Intenções: ORDER_STATUS, ORDER_PRODUCTS, REQUEST_CANCEL, CONFIRM_CANCEL, DECLINE_CANCEL, HUMAN, OUT_OF_SCOPE, UNKNOWN.
 - O modelo ajuda a interpretar linguagem natural e a escolher a abertura da resposta. Os textos que expressam fatos, confirmação, falhas e sucesso são compostos deterministicamente pelo backend. Essa escolha restringe a liberdade de redação para impedir que uma alucinação seja apresentada como resultado de uma operação.
-- `store: false`, máximo de 300 tokens de saída, sem retry automático, timeout padrão 10 segundos. Recusa, saída incompleta ou schema inválido não autorizam ações.
-- Sem chave, o servidor inicia e a API de pedidos continua funcionando. Mensagens comuns geram AI_UNAVAILABLE e encaminhamento simulado. Confirmação/desistência explícita de estado previamente válido não depende de nova chamada ao modelo.
+- `store: false`, máximo de 600 tokens na versão atual (300 na original), sem retry automático, timeout padrão 10 segundos. Recusa, saída incompleta ou schema inválido não autorizam ações.
+- Sem chave, o servidor inicia. Na versão atual, consultas locais reconhecidas e decisões explícitas continuam disponíveis; mensagens que exigem modelo recebem AI_UNAVAILABLE e oferta humana sem registro automático.
 - A suíte automatizada nunca chama a OpenAI real. Validar SDK com mocks não comprova qualidade semântica ou disponibilidade de um modelo real.
 
 ### Prompt efetivamente utilizado
@@ -110,7 +112,7 @@ Há um limite simples de 30 turnos concluídos recentes por cliente/minuto antes
 
 ## Cancelamento conversacional
 
-1. Cliente envia uma solicitação e um único UUID de pedido (ou referência ao último pedido válido da conversa).
+1. Na versão atual, cliente informa um único número público ou referência inequívoca ao pedido próprio da conversa. UUID permanece para compatibilidade técnica.
 2. O modelo sugere REQUEST_CANCEL. O backend chama `orders.getOwn` e valida o estado retornado.
 3. SHIPPED e CANCELLED não geram desafio e não sofrem alteração. Para PROCESSING, o backend gera confirmationId UUID novo, grava pedido/cliente/conversa, expiração padrão de 300 segundos e AWAITING_CONFIRMATION.
 4. A resposta identifica expressamente o pedido e informa que o cancelamento ainda não ocorreu. A confirmação está em `data.conversation.pendingConfirmation`.
@@ -135,7 +137,7 @@ Referência do fornecedor: [Fake Store API](https://github.com/keikaavousi/fake-
 
 ## Encaminhamento humano
 
-O orquestrador registra encaminhamento simulado em HUMAN, OUT_OF_SCOPE, UNKNOWN/falta de pedido e indisponibilidade/saída inválida da IA. Há também POST /handoffs, independente da disponibilidade do modelo, com motivo enumerado e conversa própria opcional.
+Na versão original, esses ramos registravam encaminhamento automaticamente. O fluxo foi substituído: fora do escopo, UNKNOWN e falhas da IA apenas oferecem atendimento. O registro atual exige consentimento vinculado à oferta ou pedido direto reconhecido. HUMAN do modelo isoladamente também só oferece. Há também POST /handoffs, independente da disponibilidade do modelo, com motivo enumerado e conversa própria opcional.
 
 O registro retorna `simulated: true`, status OPEN e aviso de que não há equipe conectada nem contato agendado. Nunca envia e-mail, Slack ou notificação real. Para a mesma conversa, retorna o primeiro registro, preservando seu motivo original. HUMAN_REQUESTED indica que a simulação foi registrada, não que alguém assumiu a conversa; novas mensagens automáticas ainda são permitidas.
 
@@ -192,8 +194,8 @@ Condição comum: Vitest/Supertest e aplicação com dependências injetadas. In
 | Concorrência | Seis confirmações distintas e quatro entregas duplicadas | Uma execução; busy/replay seguro; integration/agent.test.ts |
 | Invalidar desafio anterior | Nova solicitação, depois usar ID antigo | ID antigo inválido, novo funciona mesmo sem IA; integration/agent.test.ts |
 | Atomicidade | Falha ao salvar turno após executar update do pedido | Rollback de pedido, confirmação e mensagens; integration/agent.test.ts |
-| Fallback IA | Três falhas controladas do modelo | Encaminhamento simulado persistido; integration/agent.test.ts |
-| Escopo/humano | HUMAN, UNKNOWN, OUT_OF_SCOPE com texto adversarial | Sem ações, registro simulado e resposta segura; integration/agent.test.ts |
+| Fallback IA | Três falhas controladas do modelo | Oferta persistida sem HumanHandoff autom?tico; integration/agent.test.ts |
+| Escopo/humano | HUMAN, UNKNOWN, OUT_OF_SCOPE com texto adversarial | Sem ações, oferta sem registro automático e resposta segura; integration/agent.test.ts |
 | Handoff direto | Com/sem conversa; conversa alheia; repetição | Titularidade, registro idempotente por conversa; integration/agent.test.ts |
 | Fencing | Handoff enquanto modelo está aguardando | Worker antigo recebe busy e não grava; integration/agent.test.ts |
 | Falha de handoff | Banco falha ao criar encaminhamento | HANDOFF_UNAVAILABLE, sem turno/afirmação de sucesso; integration/agent.test.ts |

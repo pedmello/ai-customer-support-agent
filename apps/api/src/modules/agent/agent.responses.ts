@@ -20,5 +20,9 @@ export function orderStatusReply(order: ResponseOrder) {
     style: "currency",
     currency: order.currency,
   }).format(order.totalCents / 100);
-  return `O ${orderLabel(order)} está ${status}. O total registrado é ${total}.`;
+  // SHIPPED records dispatch only; there is no official delivery data to confirm arrival.
+  const delivery = order.status === "SHIPPED"
+    ? " Enviado significa que o pedido saiu para entrega; não tenho confirmação oficial de que ele foi entregue."
+    : "";
+  return `O ${orderLabel(order)} está ${status}.${delivery} O total registrado é ${total}.`;
 }

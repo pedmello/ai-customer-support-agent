@@ -1,8 +1,9 @@
+import { responseExamples, errorExample } from './response-examples.js';
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
-const json = (name: string) => ({ "application/json": { schema: ref(name) } });
+const json = (name: string) => ({ 'application/json': { schema: ref(name), ...(responseExamples[name] ? { example: responseExamples[name] } : {}) } });
 const error = (description: string) => ({
   description,
-  content: json("Error"),
+  content: { 'application/json': { schema: ref('Error'), example: errorExample(description) } },
 });
 const password = {
   type: "string",

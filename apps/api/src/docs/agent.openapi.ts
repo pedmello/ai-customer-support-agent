@@ -1,10 +1,11 @@
+import { responseExamples, errorExample } from './response-examples.js';
 ﻿const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
-const json = (name: string) => ({ 'application/json': { schema: ref(name) } });
+const json = (name: string) => ({ 'application/json': { schema: ref(name), ...(responseExamples[name] ? { example: responseExamples[name] } : {}) } });
 const uuid = { type: 'string', format: 'uuid' };
 const date = { type: 'string', format: 'date-time' };
 const readSecurity = [{ cookieSession: [] }, { secureCookieSession: [] }];
 const writeSecurity = [{ cookieSession: [], csrfToken: [] }, { secureCookieSession: [], csrfToken: [] }];
-const error = (description: string) => ({ description, content: json('Error') });
+const error = (description: string) => ({ description, content: { 'application/json': { schema: ref('Error'), example: errorExample(description) } } });
 const errors = {
   '400': error('VALIDATION_ERROR / INVALID_REQUEST'), '401': error('UNAUTHENTICATED'),
   '403': error('CSRF_INVALID / ORIGIN_NOT_ALLOWED'), '404': error('CONVERSATION_NOT_FOUND; inexistente e outro titular são indistinguíveis'),
@@ -58,9 +59,9 @@ export const agentPaths = {
 const conversationProperties = {
   conversationId: uuid, state: { type: 'string', enum: ['ACTIVE', 'AWAITING_CONFIRMATION', 'HUMAN_REQUESTED'] },
   createdAt: date, updatedAt: date,
-  pendingConfirmation: { type: 'object', nullable: true, required: ['confirmationId', 'orderId', 'expiresAt'],
+  pendingConfirmation: { type: 'object', nullable: true, additionalProperties: false, required: ['confirmationId', 'orderId', 'orderNumber', 'expiresAt'],
     properties: { confirmationId: uuid, orderId: uuid, orderNumber: { type: 'integer', nullable: true, minimum: 10000 }, expiresAt: date } },
-  pendingHandoff: { type: 'object', nullable: true, required: ['offerId', 'expiresAt'],
+  pendingHandoff: { type: 'object', nullable: true, additionalProperties: false, required: ['offerId', 'expiresAt'],
     description: 'Oferta humana sem registro. Aceite/recusa devem enviar handoffOfferId correspondente e conteúdo explícito. Expira, é consumida uma vez e só vale nesta conversa.',
     properties: { offerId: uuid, expiresAt: date } },
 };
@@ -70,6 +71,7 @@ export const agentSchemas = {
   } },
   EmptyInput: { type: 'object', additionalProperties: false },
   SendAgentMessage: { type: 'object', required: ['clientMessageId', 'content'], additionalProperties: false,
+    not: { required: ['confirmationId', 'handoffOfferId'] },
     properties: { clientMessageId: uuid, content: { type: 'string', minLength: 1, maxLength: 2000 }, confirmationId: uuid,
       handoffOfferId: { ...uuid, description: 'Oferta retornada em pendingHandoff.offerId. Envie content Sim ou Não, obrigado. Não combinar com confirmationId de cancelamento.' } } },
   Conversation: { type: 'object', required: Object.keys(conversationProperties), properties: conversationProperties },
@@ -78,9 +80,9 @@ export const agentSchemas = {
     data: { type: 'array', items: ref('Conversation') }, pagination: ref('Pagination') } },
   ConversationHistory: { type: 'object', required: ['data', 'pagination'], properties: {
     data: { type: 'object', required: [...Object.keys(conversationProperties), 'turns'], properties: {
-      ...conversationProperties, turns: { type: 'array', items: { type: 'object', properties: {
+      ...conversationProperties, turns: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['turnId', 'clientMessageId', 'createdAt', 'messages'], properties: {
         turnId: uuid, clientMessageId: uuid, createdAt: date,
-        messages: { type: 'array', items: { type: 'object', properties: { messageId: uuid, role: { type: 'string', enum: ['USER', 'ASSISTANT'] }, content: { type: 'string' }, createdAt: date } } },
+        messages: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'object', additionalProperties: false, required: ['messageId', 'role', 'content', 'createdAt'], properties: { messageId: uuid, role: { type: 'string', enum: ['USER', 'ASSISTANT'] }, content: { type: 'string' }, createdAt: date } } },
       } } },
     } }, pagination: ref('Pagination') } },
   RegisterHandoff: { type: 'object', additionalProperties: false, required: ['reason'], properties: {
@@ -89,17 +91,17 @@ export const agentSchemas = {
   Handoff: { type: 'object', required: ['handoffId', 'conversationId', 'reason', 'status', 'createdAt', 'simulated'], properties: {
     handoffId: uuid, conversationId: { ...uuid, nullable: true }, reason: { type: 'string' }, status: { type: 'string', enum: ['OPEN'] }, createdAt: date, simulated: { type: 'boolean', enum: [true] },
   } },
-  HandoffResponse: { type: 'object', properties: { data: ref('Handoff') } },
+  HandoffResponse: { type: 'object', required: ['data'], properties: { data: ref('Handoff') } },
   ExternalProductResult: { type: 'object', required: ['productId', 'source', 'status'], properties: {
     productId: { type: 'integer' }, source: { type: 'string', enum: ['FAKE_STORE'] }, status: { type: 'string', enum: ['AVAILABLE', 'NOT_FOUND', 'UNAVAILABLE'] }, code: { type: 'string' },
-    product: { type: 'object', properties: { id: { type: 'integer' }, title: { type: 'string' }, description: { type: 'string' }, category: { type: 'string' }, image: { type: 'string', format: 'uri' } } },
+    product: { type: 'object', additionalProperties: false, required: ['id', 'title', 'description', 'category', 'image'], properties: { id: { type: 'integer' }, title: { type: 'string' }, description: { type: 'string' }, category: { type: 'string' }, image: { type: 'string', format: 'uri' } } },
   } },
   AgentMessageResponse: { type: 'object', required: ['data'], properties: { data: { type: 'object', required: ['clientMessageId', 'code', 'reply', 'conversation'], properties: {
-    clientMessageId: uuid, code: { type: 'string', description: 'ORDER_STATUS, ORDER_COLLECTION, BULK_CANCELLATION_NOT_ALLOWED, ORDER_PRODUCTS, PRODUCTS_PARTIALLY_UNAVAILABLE, CONFIRMATION_REQUIRED, CONFIRMATION_INVALID, CONFIRMATION_EXPIRED, CANCELLATION_DECLINED, ORDER_CANCELLED, ORDER_ALREADY_CANCELLED, ORDER_NOT_CANCELLABLE, ORDER_NOT_FOUND, ORDER_ID_REQUIRED, NEEDS_CLARIFICATION, HUMAN_REQUESTED, HANDOFF_OFFERED, HANDOFF_DECLINED, HANDOFF_CONFIRMATION_REQUIRED, HANDOFF_CONFIRMATION_INVALID, HANDOFF_CONFIRMATION_EXPIRED, OUT_OF_SCOPE, AI_UNAVAILABLE, AI_TIMEOUT ou AI_INVALID_RESPONSE' },
+    clientMessageId: uuid, code: { type: 'string', description: 'QUERY_UNSUPPORTED, ORDER_STATUS, ORDER_COLLECTION, BULK_CANCELLATION_NOT_ALLOWED, ORDER_PRODUCTS, PRODUCTS_PARTIALLY_UNAVAILABLE, CONFIRMATION_REQUIRED, CONFIRMATION_INVALID, CONFIRMATION_EXPIRED, CANCELLATION_DECLINED, ORDER_CANCELLED, ORDER_ALREADY_CANCELLED, ORDER_NOT_CANCELLABLE, ORDER_NOT_FOUND, ORDER_ID_REQUIRED, NEEDS_CLARIFICATION, HUMAN_REQUESTED, HANDOFF_OFFERED, HANDOFF_DECLINED, HANDOFF_CONFIRMATION_REQUIRED, HANDOFF_CONFIRMATION_INVALID, HANDOFF_CONFIRMATION_EXPIRED, OUT_OF_SCOPE, AI_UNAVAILABLE, AI_TIMEOUT ou AI_INVALID_RESPONSE. PRODUCTS_PARTIALLY_UNAVAILABLE cobre indisponibilidade parcial ou total do catálogo complementar; os dados oficiais do pedido permanecem válidos.' },
     reply: { type: 'string' }, conversation: ref('Conversation'), order: ref('Order'), handoff: ref('Handoff'), products: { type: 'array', items: ref('ExternalProductResult') },
-    collection: { type: 'object', description: 'ORDER_COLLECTION: leitura híbrida por parser ou plano de IA validado, com operações list/count/exists/products/total/select e inclusão/exclusão de status. Cálculos determinísticos, somente do titular, valores separados por moeda. O plano é interno: não é aceito no corpo da requisição. Não cancela em lote; BULK_CANCELLATION_NOT_ALLOWED solicita escolha individual.', properties: {
-      count: { type: 'integer' }, totals: { type: 'array', items: { type: 'object', properties: { currency: { type: 'string' }, totalCents: { type: 'integer' } } } },
-      orders: { type: 'array', maxItems: 10, items: { type: 'object', properties: { orderNumber: { type: 'integer' }, status: { type: 'string' }, currency: { type: 'string' }, totalCents: { type: 'integer' }, createdAt: date,
+    collection: { type: 'object', additionalProperties: false, required: ['count', 'totals', 'orders'], description: 'ORDER_COLLECTION: leitura híbrida por parser ou plano de IA validado, com operações list/count/exists/products/total/select e inclusão/exclusão de status. Cálculos determinísticos, somente do titular, valores separados por moeda. O plano é interno: não é aceito no corpo da requisição. Não cancela em lote; BULK_CANCELLATION_NOT_ALLOWED solicita escolha individual.', properties: {
+      count: { type: 'integer', minimum: 0 }, totals: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['currency', 'totalCents'], properties: { currency: { type: 'string' }, totalCents: { type: 'integer' } } } },
+      orders: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['orderNumber', 'status', 'currency', 'totalCents', 'createdAt', 'items'], properties: { orderNumber: { type: 'integer' }, status: { type: 'string', enum: ['PROCESSING', 'SHIPPED', 'CANCELLED'] }, currency: { type: 'string' }, totalCents: { type: 'integer' }, createdAt: date,
         items: { type: 'array', items: ref('OrderItem') } } } },
     } },
   } } } },

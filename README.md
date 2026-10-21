@@ -4,6 +4,8 @@ Agente seguro de atendimento por mensagens de texto. **Etapas 1 a 4 e Implementa
 
 O cadastro cria cliente, sessão e seis pedidos em uma transação. **Os pedidos são demonstrativos e o cadastro não comprova posse do e-mail.** O login exige senha; recuperação exige código recebido no endereço cadastrado. E-mail duplicado não concede acesso à conta existente. O cancelamento REST direto exige identidade, CSRF, titularidade e estado permitido; representa uma operação autorizada pelo fluxo chamador. **O fluxo do agente acrescenta confirmação explícita persistida, expiração e uso único**, sem modificar esse contrato direto.
 
+> **Referência do funcionamento atual: [docs/current-behavior.md](docs/current-behavior.md).** Regras, suposições, dúvidas de negócio, limites e o comportamento conversacional vigente estão consolidados ali. Os documentos `stage-*` e `improvement-*` registram cada entrega e não descrevem necessariamente o comportamento atual.
+
 ## Requisitos
 
 - Node.js **24 LTS** e npm **11+** (a versão principal está em `.nvmrc`).
@@ -39,7 +41,7 @@ No WSL/bash, o equivalente à cópia é `cp .env.example .env`. Para instalaçõ
 | `DATABASE_URL` | Ver `.env.example` | Conexão da API/Prisma executados no host |
 | `TEST_DATABASE_URL` | Ver `.env.example` | Banco exclusivo terminado em `_test` para integração; nunca reutilize o banco da aplicação |
 | `VITE_API_URL` | `http://localhost:3000` | Endereço público da API usado pelo cliente HTTP do frontend |
-| `AI_PROVIDER` | `gemini` no exemplo | Seleciona `gemini` ou `openai`; sem variável, mantém OpenAI para instalações existentes |
+| `AI_PROVIDER` | `gemini` no exemplo | Seleciona `gemini` ou `openai`. Sem variável: o Docker Compose usa `gemini` (igual ao `.env.example`); a API executada no host mantém `openai` por compatibilidade. Defina-a sempre explicitamente |
 | `GEMINI_API_KEY` | vazio | Chave Gemini exclusiva do backend; inserir somente no `.env` da raiz |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Modelo estável com JSON Schema; nível gratuito sujeito a cotas e elegibilidade |
 | `GEMINI_TIMEOUT_MS` | `10000` | Prazo total Gemini, entre 100 e 30000 ms; até duas tentativas apenas em HTTP 502/503/504, sem renovar o prazo |
@@ -127,7 +129,7 @@ Não use o hostname interno `postgres` para conectar pelo DBeaver no host.
 
 ## Prisma e migrations
 
-O schema contém `Customer`, `Session`, `Order` e `OrderItem`. A migration versionada `202610190001_stage2_customers_sessions_orders` cria tabelas, enum, chaves, índices e checks de consistência, sem apagar dados. O client Prisma 7 usa o adapter PostgreSQL e é gerado em `apps/api/src/generated/prisma` (ignorado pelo Git).
+O schema contém `Customer`, `Session`, `Order`, `OrderItem`, `Conversation`, `ConversationTurn`, `Message`, `HumanHandoff`, `PasswordResetChallenge` e `AuthRateLimit`. As cinco migrations incrementais versionadas criam e evoluem tabelas, enums, índices, constraints e views, preservando os registros anteriores. O client Prisma 7 usa o adapter PostgreSQL e é gerado em `apps/api/src/generated/prisma` (ignorado pelo Git).
 
 ```powershell
 npm run db:generate
@@ -198,7 +200,7 @@ Os pedidos iniciais têm estados PROCESSING, SHIPPED e CANCELLED. Novos pedidos 
 1. Abra <http://localhost:3000/docs/> ou configure o Postman para essa URL base.
 2. Execute `POST /customers` com `Content-Type: application/json` e `{"name":"Ana Silva","email":"ana-unica@example.test","password":"Exemplo-longo-123!","passwordConfirmation":"Exemplo-longo-123!"}`. Use um e-mail inédito. A resposta 201 contém `csrfToken`; o cookie HttpOnly é guardado pelo navegador/cookie jar do Postman. Para retornar à mesma conta, utilize `POST /sessions` com e-mail e senha.
 3. No Swagger, clique **Authorize** e preencha somente `csrfToken`. Deixe os campos de cookie vazios: o navegador envia o cookie emitido pelo servidor. No Postman, mantenha o cookie jar ativo e envie `X-CSRF-Token: <valor retornado>` nas mutações.
-4. Consulte `/sessions/current` para obter novamente o CSRF e a identidade atual; consulte `/orders` e copie um `orderId` do resultado.
+4. Consulte `/sessions/current` para obter novamente o CSRF e a identidade atual; consulte `/orders` e copie o `orderNumber` para atendimento ou o `orderId` técnico para testar a rota REST compatível.
 5. Execute `POST /orders/{orderId}/cancel` com corpo JSON `{}` e o header CSRF. Um PROCESSING retorna 200; SHIPPED ou CANCELLED retornam 409.
 6. Execute `DELETE /sessions/current` com CSRF para revogar. O token antigo passa a retornar 401. Entre novamente com `POST /sessions` ou utilize a recuperação por código após configurar o Resend.
 
@@ -280,11 +282,23 @@ As camadas ficam juntas por módulo. Controller trata HTTP; service coordena o c
 
 Logs são JSON em stdout com Pino/Pino HTTP, identificação de requisição e duração. Não são registrados corpos, headers, query strings, connection strings ou mensagens de erro dos drivers. Erros expõem apenas respostas genéricas. O servidor limita JSON a 16 KiB, aplica headers de segurança e encerra conexões no shutdown.
 
-Detalhes históricos: [Etapa 1](docs/stage-1.md) e [Etapa 2](docs/stage-2.md). Implementação atual: [Etapa 3](docs/stage-3.md) e [guia didático do código](docs/code-walkthrough-stage-3.md).
+Contrato atual, dúvidas, suposições e limites: [funcionamento atual](docs/current-behavior.md). Logs e exemplos sanitizados: [logs estruturados](docs/structured-logs.md). Os documentos stage-* registram entregas históricas; os guias atuais de consultas e consentimento prevalecem sobre descrições anteriores.
+
+## Provedores de IA: credenciais, cotas e funcionamento sem IA
+
+O agente precisa de uma credencial válida do provedor selecionado (`GEMINI_API_KEY` ou `OPENAI_API_KEY`) para interpretar linguagem natural. As chaves ficam somente no `.env` da raiz e no serviço `api`. Disponibilidade, modelos e **cotas** dependem da conta de quem executa: no nível gratuito do Gemini, sequências rápidas de mensagens podem receber HTTP 429. Nesse caso a resposta é `AI_UNAVAILABLE`, nenhuma ação é executada e o atendimento humano é apenas oferecido. Os logs registram `category: "RATE_LIMIT"`, `status: 429` e `failureCode`.
+
+Sem a IA (chave ausente ou inválida, cota esgotada ou timeout), continuam funcionando de forma determinística:
+
+- Mensagens simples com um único número: `Qual o status do pedido #10003?`, `Quero cancelar o pedido #10003`, `Quais os produtos do pedido #10003?` e variações próximas, incluindo as mensagens dos botões do frontend.
+- Pedidos sem número, como `Quero cancelar meu pedido` e `Cadê meu pedido?`, que recebem a pergunta sobre qual pedido.
+- Consultas coletivas reconhecidas (`Quais pedidos eu tenho?`, `Tenho mais de um pedido?`), saudações, confirmação/desistência pelos botões e pedido direto de atendente.
+
+O reconhecimento determinístico substitui apenas a interpretação. Titularidade, status, confirmação explícita, expiração e execução continuam no backend; nunca há cancelamento automático ou em lote. Perguntas indiretas ou complexas continuam dependendo do modelo.
 
 ## Agente: Swagger e Postman
 
-O frontend está em <http://localhost:5173>. A interface inicia cancelamentos exclusivamente pelo agente e seus botões de confirmação. Use a API em <http://localhost:3000>, Swagger em <http://localhost:3000/docs/> e a mesma sessão/CSRF do cadastro.
+O frontend está por padrão em <http://localhost:5173>. Se a porta estiver ocupada, configure `WEB_PORT=5174` e `WEB_ORIGIN=http://localhost:5174` no `.env` e recrie a web/API. A interface inicia cancelamentos exclusivamente pelo agente e seus botões de confirmação. Use a API em <http://localhost:3000>, Swagger em <http://localhost:3000/docs/> e a mesma sessão/CSRF do cadastro.
 
 | Método | Endpoint | Função |
 | --- | --- | --- |
@@ -294,18 +308,18 @@ O frontend está em <http://localhost:5173>. A interface inicia cancelamentos ex
 | POST | `/conversations/{conversationId}/messages` | Mensagem com `clientMessageId`, `content` e, ao decidir, `confirmationId` |
 | POST | `/handoffs` | Registrar encaminhamento humano simulado, com conversa opcional |
 
-1. No `.env` da raiz, configure `AI_PROVIDER=gemini`, `GEMINI_API_KEY` e `GEMINI_MODEL`. Alternativamente, use `AI_PROVIDER=openai`, `OPENAI_API_KEY` e `OPENAI_MODEL`. Reinicie a API. Sem a chave do provedor selecionado, mensagens comuns retornam fallback com encaminhamento simulado; não há interpretação local fingindo ser um modelo real.
-2. Cadastre um cliente, guarde CSRF, consulte `/orders` e copie um pedido PROCESSING. Crie conversa com `POST /conversations`, corpo `{}`, cookie e CSRF.
+1. No `.env` da raiz, configure `AI_PROVIDER=gemini`, `GEMINI_API_KEY` e `GEMINI_MODEL`. Alternativamente, use `AI_PROVIDER=openai`, `OPENAI_API_KEY` e `OPENAI_MODEL`. Reinicie a API. Sem a chave do provedor selecionado, as mensagens simples listadas em [Provedores de IA](#provedores-de-ia-credenciais-cotas-e-funcionamento-sem-ia) e as decisões explícitas continuam funcionando; outras interpretações recebem fallback e oferta de atendimento, sem registro automático.
+2. Cadastre um cliente, guarde CSRF, consulte `/orders` e copie o número público de um pedido PROCESSING. Substitua #10000 nos exemplos pelo número realmente retornado. Crie conversa com `POST /conversations`, corpo `{}`, cookie e CSRF.
 3. Envie a `/conversations/{conversationId}/messages`:
 
    ```json
-   {"clientMessageId":"e3f7f4f9-f004-468b-b39b-ff56a74d086e","content":"Quero cancelar o pedido UUID_DO_PEDIDO"}
+   {"clientMessageId":"e3f7f4f9-f004-468b-b39b-ff56a74d086e","content":"Quero cancelar o pedido #10000"}
    ```
 
-4. Copie `data.conversation.pendingConfirmation.confirmationId`. Confira o UUID do pedido e o prazo. O pedido ainda não foi cancelado.
+4. Copie `data.conversation.pendingConfirmation.confirmationId`. Confira o número público do pedido e o prazo. O pedido ainda não foi cancelado.
 5. Envie outra mensagem com **novo** `clientMessageId`, `content` exatamente `CONFIRMAR CANCELAMENTO` e `confirmationId` igual ao recebido. Para desistir, use `DESISTIR` e o mesmo identificador. “Sim” não executa a operação.
 6. Somente `data.code=ORDER_CANCELLED` representa sucesso desta execução; consulte também `/orders/{orderId}`. Confirmação vencida exige nova solicitação. Não reutilize o identificador em outra conversa.
-7. Para consultar produtos, envie `Quais os produtos do pedido UUID_DO_PEDIDO?`. `data.order` contém preços/status oficiais; `data.products` contém dados externos complementares ou indisponibilidade. As descrições externas são texto não confiável.
+7. Para consultar produtos, envie `Quais os produtos do pedido #10000?`. `data.order` contém preços/status oficiais; `data.products` contém dados externos complementares ou indisponibilidade. As descrições externas são texto não confiável.
 8. Para encaminhamento direto: `POST /handoffs` com `{"reason":"CUSTOMER_REQUEST","conversationId":"UUID_DA_CONVERSA"}`. Sem `conversationId` também é permitido. Há somente registro simulado, sem promessa de contato.
 
 Gere UUIDs no Postman com `{{$guid}}` (resolva e conserve o valor para retries) ou PowerShell `[guid]::NewGuid()`. Cada mensagem lógica tem uma chave nova; **retries da mesma mensagem reutilizam o mesmo `clientMessageId` e conteúdo**. Duplicatas concluídas devolvem o resultado original; `409 CONVERSATION_BUSY` permite tentar novamente. Reutilização com outro conteúdo retorna `409 MESSAGE_ID_CONFLICT`. O resultado repetido é um retrato daquela execução, não uma consulta do estado atual; recupere o estado em GET da conversa.
@@ -316,7 +330,7 @@ No DBeaver, mantenha `localhost:5434`, banco `support_agent`, usuário/senha con
 
 ## Implementação 1 — Números públicos e catálogo Fake Store
 
-Pedidos agora têm `orderNumber` único e legível; a UI e o agente usam `#10000` em vez de UUIDs. Consulte um pedido próprio com `GET /orders/by-number/{orderNumber}`; as rotas por UUID permanecem para compatibilidade. Novos cadastros recebem três produtos distintos do catálogo local versionado da Fake Store, com fotografias externas e preços demonstrativos oficiais em BRL. Pedidos antigos em USD não são convertidos. Consultas/cancelamentos não dependem do catálogo HTTP estar disponível.
+Pedidos agora têm `orderNumber` único e legível; a UI e o agente usam `#10000` em vez de UUIDs. Consulte um pedido próprio com `GET /orders/by-number/{orderNumber}`; as rotas por UUID permanecem para compatibilidade. Novos cadastros recebem seis produtos distintos do catálogo local versionado da Fake Store, com fotografias externas e preços demonstrativos oficiais em BRL. Pedidos antigos em USD não são convertidos. Consultas/cancelamentos não dependem do catálogo HTTP estar disponível.
 
 A versão atual substitui a mochila Fjallraven pelo HD externo WD 2TB, ID 9. IDs externos e metadados ficam no snapshot local; a integração HTTP real continua como complemento. A UI tem fallback de imagem, cópia do número e o mesmo fluxo seguro de confirmação.
 
@@ -336,7 +350,7 @@ Documentação: [entrega e validação](docs/improvement-1.md), [guia didático 
 
 Antes de executar uma versão atualizada sobre banco anterior, aplique as migrations incrementais com `npm run db:deploy` (ou o comando de deploy Docker já documentado). Não use reset. Na validação local desta entrega a migration já foi aplicada, com backup local ignorado pelo Git e conferência dos dados anteriores.
 
-Ajustes atuais de mobile, fontes locais, seis pedidos por novo cadastro e consultas gerais do agente: [documenta��o e guia de c�digo](docs/mobile-orders-improvements.md).
+Ajustes atuais de mobile, fontes locais, seis pedidos por novo cadastro e consultas gerais do agente: [documentação e guia de código](docs/mobile-orders-improvements.md).
 
 Loaders locais, confirmação humana no histórico e ajustes atuais de interface: [documentação do frontend](docs/frontend-feedback.md).
 

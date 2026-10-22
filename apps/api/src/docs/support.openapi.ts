@@ -1,6 +1,6 @@
 import { responseExamples, errorExample } from './response-examples.js';
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
-const json = (name: string) => ({ 'application/json': { schema: ref(name), ...(responseExamples[name] ? { example: responseExamples[name] } : {}) } });
+const json = (name: string, example = responseExamples[name]) => ({ 'application/json': { schema: ref(name), ...(example ? { example } : {}) } });
 const error = (description: string) => ({ description, content: { 'application/json': { schema: ref('Error'), example: errorExample(description) } } });
 const authenticated = [{ cookieSession: [] }, { secureCookieSession: [] }];
 const mutationSecurity = [{ cookieSession: [], csrfToken: [] }, { secureCookieSession: [], csrfToken: [] }];
@@ -87,7 +87,7 @@ export const supportPaths = {
       security: mutationSecurity, parameters: [orderId],
       requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', additionalProperties: false }, example: {} } } },
       responses: {
-        '200': { description: 'Pedido alterado para CANCELLED com cancelledAt preenchido', content: json('OrderResponse') },
+        '200': { description: 'Pedido alterado para CANCELLED com cancelledAt preenchido', content: json('OrderResponse', responseExamples.CancelledOrderResponse) },
         '400': error('VALIDATION_ERROR: UUID inválido ou campos extras'),
         '404': error('ORDER_NOT_FOUND: pedido inexistente ou de outro cliente'),
         '409': error('ORDER_ALREADY_CANCELLED ou ORDER_NOT_CANCELLABLE (SHIPPED); nenhuma alteração'),

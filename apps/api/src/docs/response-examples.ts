@@ -1,6 +1,7 @@
 // Fictitious values only. Never copy sessions, credentials or production responses here.
 const id = '41d0bbe7-cf9e-4f53-99f1-1febbf22802f';
 const date = '2026-10-21T12:00:00.000Z';
+const cancelledDate = '2026-10-21T12:05:00.000Z';
 const pagination = { page: 1, pageSize: 20, totalItems: 1, totalPages: 1 };
 const conversation = { conversationId: id, state: 'ACTIVE', createdAt: date, updatedAt: date,
   pendingConfirmation: null, pendingHandoff: null };
@@ -12,6 +13,7 @@ export const responseExamples: Record<string, unknown> = {
   CurrentSession: { customer: { customerId: id, name: 'Cliente Exemplo', email: 'cliente@example.test' },
     session: { expiresAt: '2026-10-22T12:00:00.000Z' }, csrfToken: 'A'.repeat(43) },
   OrderResponse: { data: order }, OrderPage: { data: [order], pagination },
+  CancelledOrderResponse: { data: { ...order, status: 'CANCELLED', updatedAt: cancelledDate, cancelledAt: cancelledDate } },
   ConversationResponse: { data: conversation }, ConversationPage: { data: [conversation], pagination },
   ConversationHistory: { data: { ...conversation, turns: [{ turnId: id, clientMessageId: id, createdAt: date,
     messages: [{ messageId: id, role: 'USER', content: 'Quantos pedidos tenho?', createdAt: date },

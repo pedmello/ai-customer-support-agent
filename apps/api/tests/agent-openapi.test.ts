@@ -21,6 +21,15 @@ describe('agent OpenAPI contract', () => {
     }
     expect(openapi.paths['/conversations/{conversationId}/messages'].post.responses['200'].content['application/json'].example).toEqual(responseExamples.AgentMessageResponse);
   });
+  it('shows a cancelled order in the successful cancellation example', () => {
+    const example = openapi.paths['/orders/{orderId}/cancel'].post.responses['200'].content['application/json'].example as { data: Record<string, unknown> };
+    expect(example.data.status).toBe('CANCELLED');
+    expect(example.data.cancelledAt).toEqual(expect.any(String));
+    expect(example.data.updatedAt).toBe(example.data.cancelledAt);
+    const schema = openapi.components.schemas.Order;
+    expect(Object.keys(example.data).sort()).toEqual([...schema.required].sort());
+    expect((responseExamples.OrderResponse as { data: { status: string } }).data.status).toBe('PROCESSING');
+  });
   it('resolves all local component references', () => {
     const visit = (node: unknown) => {
       if (!node || typeof node !== 'object') return;
@@ -41,7 +50,9 @@ describe('agent OpenAPI contract', () => {
     }
   });
   it('documents the exact system prompt used at runtime', () => {
-    const doc = readFileSync(new URL('../../../docs/stage-3.md', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-    expect(doc).toContain(AGENT_SYSTEM_PROMPT);
+    for (const file of ['stage-3.md', 'agent-instructions.md']) {
+      const doc = readFileSync(new URL(`../../../docs/${file}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+      expect(doc, file).toContain(AGENT_SYSTEM_PROMPT);
+    }
   });
 });
